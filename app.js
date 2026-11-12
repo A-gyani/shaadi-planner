@@ -307,8 +307,8 @@ function homeHTML() {
   const tf = todayFn();
   return `${heroHTML()}${tf && canEdit() ? `<button class="big-btn primary" style="width:100%;margin-bottom:14px" data-act="add-shagun" data-dir="in"><i class="ph ph-arrow-down-left"></i>${t('addShagun')}<span class="small" style="font-weight:600">${esc(t('todayShagun', fnName(tf)))}</span></button>` : ''}${fnStripHTML()}
   <div class="stats">
-    <div class="stat"><div class="lb">${t('totalPaid')}</div><div class="v">${inr(d.paid)}</div><div class="w">${words(d.paid)}</div></div>
-    <div class="stat due"><div class="lb">${t('stillDue')}</div><div class="v">${inr(d.due)}</div><div class="w">${words(d.due)}</div></div>
+    <button class="stat" style="text-align:left" data-act="money-tab" data-v="payments"><div class="lb">${t('totalPaid')} <i class="ph ph-caret-right"></i></div><div class="v">${inr(d.paid)}</div><div class="w">${words(d.paid)}</div></button>
+    <button class="stat due" style="text-align:left" data-act="money-tab" data-v="vendors"><div class="lb">${t('stillDue')} <i class="ph ph-caret-right"></i></div><div class="v">${inr(d.due)}</div><div class="w">${words(d.due)}</div></button>
     <button class="stat full" style="text-align:left" data-act="money-tab" data-v="budget">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <div><div class="lb">${t('estTotal')}</div><div class="v">${inr(est)}</div></div>
@@ -449,21 +449,51 @@ function fnBudgetSheet(id) {
       <div class="list">${(used.length ? used : d.cats.slice(0, 4)).map(row).join('')}</div>
       ${rest.length && used.length ? `<details class="more"><summary><i class="ph ph-plus"></i> ${t('moreParts')}</summary><div class="list">${rest.map(row).join('')}</div></details>` : ''}
       ${!used.length && d.cats.length > 4 ? `<details class="more"><summary><i class="ph ph-plus"></i> ${t('moreParts')}</summary><div class="list">${d.cats.slice(4).map(row).join('')}</div></details>` : ''}
+      ${canEdit() ? `<div class="list" style="padding:4px 0"><button type="button" class="add-row" id="np-open">${t('newPart')}</button>
+        <div class="hidden" id="np-box" style="padding:4px 12px 12px"><div style="display:flex;gap:8px">
+          <input class="inp" id="np-name" placeholder="${esc(t('partNamePh'))}" style="flex:1;min-width:0">
+          <input class="inp" id="np-amt" inputmode="numeric" autocomplete="off" placeholder="₹ 0" style="width:110px;flex:none;text-align:right;font-weight:700"></div>
+          <div class="err hidden" id="e-np"></div>
+          <button type="button" class="btn ghost sm block" id="np-add" style="margin-top:8px"><i class="ph ph-plus"></i> ${t('addBtn')}</button></div></div>` : ''}
       <button class="btn gold block" id="fb-save"><i class="ph ph-check"></i> ${t('save')}</button>`,
     bind: root => {
       const total = () => [...root.querySelectorAll('.bamt')].reduce((s, i) => s + (+digits(i.value) || 0), 0);
-      root.querySelectorAll('.bamt').forEach(i => i.addEventListener('input', () => {
-        const c = digits(i.value); if (c !== i.value) i.value = c;
-        const tt = total(); root.querySelector('#fb-total').textContent = inr(tt); root.querySelector('#fb-words').textContent = words(tt);
-      }));
+      const recalc = () => { const tt = total(); root.querySelector('#fb-total').textContent = inr(tt); root.querySelector('#fb-words').textContent = words(tt); };
+      const bindAmt = i => i.addEventListener('input', () => { const c = digits(i.value); if (c !== i.value) i.value = c; recalc(); });
+      root.querySelectorAll('.bamt').forEach(bindAmt);
+      // "+ new part": becomes a new category (usable everywhere), saved together with this budget
+      const newCats = [];
+      const npBox = root.querySelector('#np-box');
+      if (npBox) {
+        root.querySelector('#np-open').addEventListener('click', e => { npBox.classList.remove('hidden'); e.currentTarget.classList.add('hidden'); root.querySelector('#np-name').focus(); });
+        const npAmt = root.querySelector('#np-amt');
+        npAmt.addEventListener('input', () => { const c = digits(npAmt.value); if (c !== npAmt.value) npAmt.value = c; });
+        root.querySelector('#np-add').addEventListener('click', () => {
+          const name = root.querySelector('#np-name').value.trim();
+          if (!name) return showErr(root, 'e-np', t('needName'));
+          const same = d.cats.find(c => norm(catName(c)) === norm(name)) || newCats.find(c => norm(c.name) === norm(name));
+          const cid = same ? same.id : newId();
+          if (!same) newCats.push({ id: cid, name });
+          let inp = root.querySelector(`.bamt[data-cat="${cid}"]`);
+          if (!inp) {
+            root.querySelector('.list').insertAdjacentHTML('beforeend', row({ id: cid, name, icon: 'tag' }));
+            inp = root.querySelector(`.bamt[data-cat="${cid}"]`); bindAmt(inp);
+          }
+          if (+digits(npAmt.value)) inp.value = digits(npAmt.value);
+          root.querySelector('#np-name').value = ''; npAmt.value = ''; root.querySelector('#e-np').classList.add('hidden');
+          recalc(); root.querySelector('#np-name').focus();
+        });
+      }
       root.querySelector('#fb-save').addEventListener('click', () => {
         const out = {};
         root.querySelectorAll('.bamt').forEach(i => { const v = +digits(i.value) || 0; if (v) out[i.dataset.cat] = v; });
         // categories not shown in this sheet (e.g. deleted ones) keep their amounts
         Object.entries(parts).forEach(([k, v]) => { if (!root.querySelector(`.bamt[data-cat="${k}"]`) && +v) out[k] = v; });
         const tot = Object.values(out).reduce((s, v) => s + v, 0);
+        const ops = newCats.map((c, i) => ({ path: wpath('categories', c.id), data: { name: c.name, icon: 'tag', order: 100 + S.categories.length + i, planned: 0, deleted: false, ...stamp(true) } }));
         // set the whole map (not merged), so cleared boxes really clear
-        store.set(wpath('occasions', id), { kind: 'budget', parts: out, planned: tot, deleted: false, ...stamp(!fnBudgetDoc(id)) }, false).catch(fail);
+        ops.push({ path: wpath('occasions', id), data: { kind: 'budget', parts: out, planned: tot, deleted: false, ...stamp(!fnBudgetDoc(id)) }, merge: false });
+        store.batch(ops).catch(fail);
         closeSheet(); toast(t('saved'));
       });
     },
@@ -1292,7 +1322,37 @@ function paymentSheet(p, presetVendor, presetOcc) {
         store.batch(ops).catch(fail);
         closeSheet(); toast(t('saved'));
       });
-      p && root.querySelector('#f-del').addEventListener('click', () => { closeSheet(); softDelete('payments', p.id); });
+      p && root.querySelector('#f-del').addEventListener('click', () => { history.go(sheets.length > 1 ? -2 : -1); softDelete('payments', p.id); });
+    },
+  });
+}
+
+/* ---------- payment details (live) ---------- */
+function payDetail(pid) {
+  const st = { img: '', asked: false };
+  const strip = s => String(s || '').replace(/\s*\(.*?\)\s*/g, '');
+  openSheet({
+    live: true,
+    html: () => {
+      const d = derive(), p = S.payments.find(x => x.id === pid);
+      if (!p || p.deleted) return sheetHead('') + `<div class="empty">—</div>`;
+      const v = d.vById[p.vendorId], c = d.cById[d.catOf(p)];
+      const rows = [[t('whatFor'), p.what], [t('occLine'), occName(p) || t('noOccasion')], [t('category'), catName(c)],
+        [t('paidTo'), v?.name || p.paidTo], [t('paidBy'), p.paidBy], [t('mode'), t('modes')[p.mode]],
+        [t('date'), p.date ? fmtD(p.date, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : ''], [t('note'), p.note]].filter(([, x]) => x);
+      return `${sheetHead(t('payDetails'), canEdit() ? `<button class="x" data-act="pay-edit" data-id="${p.id}" aria-label="${esc(t('editBtn'))}"><i class="ph ph-pencil-simple"></i></button>` : '')}
+        <div class="stat full" style="margin-bottom:12px"><div class="v">${inr(p.amount)}</div><div class="w">${words(p.amount)}</div></div>
+        <div class="list">${rows.map(([k, x]) => `<div class="row kv"><span class="k">${esc(strip(k))}</span><span class="vv">${esc(x)}</span></div>`).join('')}</div>
+        ${p.hasReceipt ? `<div class="sec-h"><h2>${t('receipt')}</h2></div>${st.img ? `<img src="${st.img}" alt="" style="width:100%;border-radius:14px;display:block;border:1px solid var(--line)">`
+          : `<div class="card small muted"><span class="spin" style="width:16px;height:16px;vertical-align:-3px"></span> ${t('loading')}</div>`}` : ''}
+        <div class="btns" style="flex-wrap:wrap">
+          ${v ? `<button class="btn ghost" data-act="vendor" data-id="${v.id}"><i class="ph ph-storefront"></i> ${esc(v.name)}</button>` : ''}
+          ${canEdit() ? `<button class="btn gold" data-act="pay-edit" data-id="${p.id}"><i class="ph ph-pencil-simple"></i> ${t('editBtn')}</button>` : ''}</div>
+        <div class="small muted" style="margin-top:12px">${esc(t('enteredBy', p.createdByName || '—', p.createdAt ? fmtD(ymd(new Date(p.createdAt)), { day: 'numeric', month: 'short', year: 'numeric' }) : ''))}</div>`;
+    },
+    bind: () => {
+      const p = S.payments.find(x => x.id === pid);
+      if (p?.hasReceipt && !st.asked) { st.asked = true; store.get(wpath('receipts', pid)).then(r => { st.img = r?.img || ''; drawSheet(); }).catch(() => {}); }
     },
   });
 }
@@ -1563,7 +1623,8 @@ const ACT = {
   'occ-new'() { occSheet(null); },
   'occ-edit'(el) { const o = S.occasions.find(x => x.id === el.dataset.id); if (o) occSheet(o); },
   'add-vendor'() { vendorSheet(null); },
-  pay(el) { const p = S.payments.find(x => x.id === el.dataset.id); if (p && canEdit()) paymentSheet(p); else if (p?.hasReceipt) receiptView(p.id); else if (p?.vendorId) vendorDetail(p.vendorId); },
+  pay(el) { payDetail(el.dataset.id); },
+  'pay-edit'(el) { const p = S.payments.find(x => x.id === el.dataset.id); if (p && canEdit()) paymentSheet(p); },
   vendor(el) { vendorDetail(el.dataset.id); },
   'edit-vendor'(el) { vendorSheet(S.vendors.find(x => x.id === el.dataset.id)); },
   'pay-vendor'(el) { paymentSheet(null, el.dataset.id); },
