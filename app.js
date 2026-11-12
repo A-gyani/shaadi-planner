@@ -1495,6 +1495,7 @@ async function joinWedding(el, me, pin) {
     // otherwise this phone could never log in with the right one.
     if (!myWeddings().length) {
       S.pin = ''; S.loginErr = t('wrongFamilyPin');
+      await store.del('users/' + uid).catch(() => {});   // its name-only profile, so nothing is left behind
       await store.deleteMe();
       return;
     }
