@@ -38,7 +38,7 @@ const S = {
   lang: LS.get('sp.lang'), screen: 'boot', demo: false,
   user: null, userDoc: {}, wid: null, wedding: null, members: [], me: null,
   payments: [], vendors: [], categories: [], functions: [], tasks: [], pend: {},
-  view: 'home', moneyTab: 'payments', cat: 'all', q: '',
+  view: 'home', moneyTab: 'payments', cat: 'all', occ: 'all', q: '',
   taskFilter: 'all', showDone: {}, setupSel: null,
   guests: [], shagun: [], guestTab: 'list', gFilter: 'all', gq: '', shDir: 'all', shq: '',
 };
@@ -332,9 +332,9 @@ function dueRow(v, d) {
 }
 function payRow(p, d) {
   const v = d.vById[p.vendorId], c = d.cById[d.catOf(p)];
-  const sub = [v && v.name !== p.what ? v.name : '', p.paidBy, t('modes')[p.mode]].filter(Boolean).join(' · ');
+  const sub = [occName(p), v && v.name !== p.what ? v.name : p.paidTo || '', p.paidBy, t('modes')[p.mode]].filter(Boolean).join(' · ');
   return `<button class="row" data-act="pay" data-id="${p.id}"><span class="ic"><i class="ph ph-${c?.icon || 'tag'}"></i></span>
-    <span class="mid"><div class="t">${esc(p.what || v?.name || '—')}</div><div class="s">${esc(sub)}</div></span>
+    <span class="mid"><div class="t">${esc(p.what || v?.name || '—')}${p.hasReceipt ? ' <i class="ph ph-paperclip muted"></i>' : ''}</div><div class="s">${esc(sub)}</div></span>
     <span class="amt">${inr(p.amount)}<div class="s">${fmtD(p.date)}</div></span></button>`;
 }
 
@@ -346,7 +346,10 @@ function moneyHTML() {
   if (S.moneyTab === 'vendors') return seg + vendorsHTML(d);
   if (S.moneyTab === 'budget') return seg + budgetHTML(d);
   const used = d.cats.filter(c => d.catPaid[c.id]);
+  const occs = [...new Map(d.P.filter(occKey).map(p => [occKey(p), occName(p)])).entries()].filter(([, n]) => n);
   return `${seg}
+    ${occs.length ? `<div class="filters"><button class="pill ${S.occ === 'all' ? 'on' : ''}" data-act="focc" data-id="all"><i class="ph ph-calendar-star"></i> ${t('allOcc')}</button>${occs.map(([k, n]) =>
+      `<button class="pill ${S.occ === k ? 'on' : ''}" data-act="focc" data-id="${esc(k)}">${esc(n)}</button>`).join('')}</div>` : ''}
     ${used.length > 1 ? `<div class="filters"><button class="pill ${S.cat === 'all' ? 'on' : ''}" data-act="fcat" data-id="all">${t('allCats')}</button>${used.map(c =>
       `<button class="pill ${S.cat === c.id ? 'on' : ''}" data-act="fcat" data-id="${c.id}">${esc(catName(c))}</button>`).join('')}</div>` : ''}
     ${d.P.length > 6 ? `<label class="searchbox"><i class="ph ph-magnifying-glass muted"></i><input id="q" data-in="q" type="search" placeholder="${t('search')}" value="${esc(S.q)}"></label>` : ''}
@@ -355,8 +358,8 @@ function moneyHTML() {
 function payListHTML(d) {
   if (!d.P.length) return `<div class="card empty">${t('noPayments')}</div>`;
   const q = S.q.trim().toLowerCase();
-  const list = d.P.filter(p => (S.cat === 'all' || d.catOf(p) === S.cat) &&
-    (!q || [p.what, d.vById[p.vendorId]?.name, p.paidBy, p.note, String(p.amount)].join(' ').toLowerCase().includes(q))).sort(byDateDesc);
+  const list = d.P.filter(p => (S.cat === 'all' || d.catOf(p) === S.cat) && (S.occ === 'all' || occKey(p) === S.occ) &&
+    (!q || [p.what, d.vById[p.vendorId]?.name, p.paidTo, occName(p), p.paidBy, p.note, String(p.amount)].join(' ').toLowerCase().includes(q))).sort(byDateDesc);
   if (!list.length) return `<div class="card empty">${t('noMatch')}</div>`;
   const total = list.reduce((s, p) => s + (+p.amount || 0), 0);
   let html = `<div class="total-line"><span>${t('total')} (${list.length})</span><span>${inr(total)}</span></div><div class="list">`, last = '';
@@ -956,38 +959,88 @@ function bindAmount(root, inputSel, wordsSel) {
 const showErr = (root, id, msg) => { const e = root.querySelector('#' + id); e.textContent = msg; e.classList.remove('hidden'); };
 
 /* ---------- payment ---------- */
+// A payment's occasion is a wedding function (fnId) or any other occasion typed once (occasion), e.g. Diwali gifts.
+const occKey = p => p.fnId ? 'fn:' + p.fnId : p.occasion ? 'o:' + p.occasion : '';
+const occName = p => { if (p.fnId) { const f = S.functions.find(x => x.id === p.fnId); if (f) return fnName(f); } return p.occasion || ''; };
+
+// Phone photos are 3–10 MB; shrink to a readable JPEG that fits in one Firestore document (max 1 MB).
+function compressImage(file, max = 1400, q = 0.62) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const draw = sc => { const c = document.createElement('canvas'); c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', q); };
+      let sc = Math.min(1, max / Math.max(w, h)), out = draw(sc);
+      while (out.length > 700000 && sc > 0.15) { sc *= 0.75; out = draw(sc); }
+      res(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image')); };
+    img.src = url;
+  });
+}
+function receiptView(pid) {
+  const st = { img: '' };
+  openSheet({
+    html: () => `${sheetHead(t('receipt'))}${st.img ? `<img src="${st.img}" alt="" style="width:100%;border-radius:14px;display:block">` : `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`}`,
+    bind: () => { if (!st.img) store.get(wpath('receipts', pid)).then(r => { st.img = r?.img || ''; if (st.img) drawSheet(); }).catch(() => {}); },
+  });
+}
+
 function paymentSheet(p, presetVendor) {
-  const d = derive();
+  const d = derive(), { fns } = tderive();
+  const lastOcc = LS.get('sp.payocc', ''), tf = todayFn();
+  const validOcc = k => !k || (k.startsWith('fn:') ? fns.some(x => 'fn:' + x.id === k) : k.startsWith('o:'));
   const f = {
-    vendorId: p ? p.vendorId || '' : presetVendor || '',
+    vendorId: p ? p.vendorId || (p.paidTo ? '__other' : '') : presetVendor || '',
     categoryId: p?.categoryId || (presetVendor && d.vById[presetVendor]?.categoryId) || 'other',
     paidBy: p?.paidBy || S.me?.name || '',
     mode: p?.mode || LS.get('sp.mode', 'cash'),
+    occ: p ? occKey(p) : (tf ? 'fn:' + tf.id : validOcc(lastOcc) ? lastOcc : ''),
+    img: '', hadImg: !!p?.hasReceipt, removed: false, loading: !!p?.hasReceipt,
   };
   const payers = [...new Set([S.me?.name, ...S.members.map(m => m.name),
     ...[...d.P].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(x => x.paidBy), p?.paidBy].filter(Boolean))].slice(0, 10);
   const vendors = [...d.V].sort(byName);
   if (p?.vendorId && !vendors.find(v => v.id === p.vendorId) && d.vById[p.vendorId]) vendors.push(d.vById[p.vendorId]);
+  const recent = [...d.P].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const purposes = [...new Set(recent.map(x => x.what).filter(w => w && !d.V.some(v => v.name === w)))].slice(0, 8);
+  const customOccs = [...new Set(recent.map(x => x.occasion).filter(Boolean))].slice(0, 8);
+  if (f.occ.startsWith('o:') && !customOccs.includes(f.occ.slice(2))) customOccs.unshift(f.occ.slice(2));
+  const rcHTML = () => f.img || (f.hadImg && !f.removed && f.loading)
+    ? (f.img ? `<div class="rc"><img src="${f.img}" alt="" id="rc-img"><div class="btns" style="margin-top:8px">
+        <button type="button" class="btn ghost sm" id="rc-change"><i class="ph ph-camera"></i> ${t('changeReceipt')}</button>
+        <button type="button" class="btn danger sm" id="rc-remove"><i class="ph ph-trash"></i> ${t('removeReceipt')}</button></div></div>`
+      : `<div class="small muted"><span class="spin" style="width:16px;height:16px;vertical-align:-3px"></span> ${t('loading')}</div>`)
+    : `<button type="button" class="btn ghost block" id="rc-add"><i class="ph ph-camera"></i> ${t('addReceipt')}</button>`;
 
   openSheet({
     html: () => `${sheetHead(p ? t('editPayment') : t('addPayment'))}
       <div class="field"><label for="f-amount">${t('amount')}</label>
         <input class="inp amt-inp" id="f-amount" inputmode="numeric" autocomplete="off" placeholder="0" value="${p ? Math.round(p.amount) : ''}">
         <div class="amt-words" id="f-words"></div><div class="err hidden" id="e-amount"></div></div>
-      <div class="field"><label for="f-vendor">${t('vendor')}</label>
-        <select class="inp" id="f-vendor"><option value="">${t('noVendor')}</option>${vendors.map(v =>
-          `<option value="${v.id}" ${f.vendorId === v.id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}<option value="__new">${t('newVendorInline')}</option></select>
-        <input class="inp hidden" id="f-newvendor" placeholder="${esc(t('vendorNamePh'))}" style="margin-top:8px">
-        <div class="err hidden" id="e-vendor"></div></div>
       <div class="field"><label for="f-what">${t('whatFor')}</label>
-        <input class="inp" id="f-what" placeholder="${esc(t('whatForPh'))}" value="${esc(p?.what || '')}"><div class="err hidden" id="e-what"></div></div>
+        <input class="inp" id="f-what" placeholder="${esc(t('whatForPh'))}" value="${esc(p?.what || '')}"><div class="err hidden" id="e-what"></div>
+        ${purposes.length ? `<div class="chips mini" style="margin-top:8px">${purposes.map(w => `<button type="button" data-fill="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}</div>
+      <div class="field"><label>${t('payOccasion')}</label>
+        <div class="chips" data-group="occ">${chip('', t('noOccasion'), !f.occ)}${fns.map(x => chip('fn:' + x.id, fnName(x), f.occ === 'fn:' + x.id)).join('')}${customOccs.map(o => chip('o:' + o, o, f.occ === 'o:' + o)).join('')}<button type="button" class="add" id="add-occ">${t('newOccasion')}</button></div>
+        <input class="inp hidden" id="f-occ" placeholder="${esc(t('occasionPh'))}" style="margin-top:8px"></div>
       <div class="field" id="cat-field"><label>${t('category')}</label>
         <div class="chips" data-group="categoryId">${d.cats.map(c => chip(c.id, catName(c), f.categoryId === c.id)).join('')}</div></div>
+      <div class="field"><label for="f-vendor">${t('paidTo')}</label>
+        <select class="inp" id="f-vendor"><option value="">${t('noVendor')}</option>${vendors.map(v =>
+          `<option value="${v.id}" ${f.vendorId === v.id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}<option value="__other" ${f.vendorId === '__other' ? 'selected' : ''}>${t('paidToOther')}</option><option value="__new">${t('newVendorInline')}</option></select>
+        <input class="inp hidden" id="f-paidto" placeholder="${esc(t('paidToPh'))}" value="${esc(p?.paidTo || '')}" style="margin-top:8px">
+        <input class="inp hidden" id="f-newvendor" placeholder="${esc(t('vendorNamePh'))}" style="margin-top:8px">
+        <div class="err hidden" id="e-vendor"></div></div>
       <div class="field"><label>${t('paidBy')}</label>
         <div class="chips" data-group="paidBy">${payers.map(n => chip(n, n, f.paidBy === n)).join('')}<button type="button" class="add" id="add-payer">${t('addName')}</button></div>
         <input class="inp hidden" id="f-payer" placeholder="${esc(t('addNamePrompt'))}" style="margin-top:8px"></div>
       <div class="field"><label>${t('mode')}</label>
         <div class="chips" data-group="mode">${MODES.map(m => chip(m, t('modes')[m], f.mode === m, MODE_IC[m])).join('')}</div></div>
+      <div class="field"><label>${t('receipt')}</label><div id="rc-box">${rcHTML()}</div>
+        <input type="file" accept="image/*" id="f-photo" class="hidden"><div class="err hidden" id="e-photo"></div></div>
       <details class="more" ${p && (p.note || p.date !== todayStr()) ? 'open' : ''}><summary><i class="ph ph-caret-down"></i> ${t('moreDetails')}</summary>
         <div class="field"><label for="f-date">${t('date')}</label><input class="inp" type="date" id="f-date" value="${p?.date || todayStr()}"></div>
         <div class="field"><label for="f-note">${t('note')}</label><textarea class="inp" id="f-note" rows="2" placeholder="${esc(t('notePh'))}">${esc(p?.note || '')}</textarea></div>
@@ -997,44 +1050,79 @@ function paymentSheet(p, presetVendor) {
         <button class="btn gold" id="f-save"><i class="ph ph-check"></i> ${t('save')}</button></div>`,
     bind: root => {
       bindAmount(root, '#f-amount', '#f-words');
-      const sel = root.querySelector('#f-vendor'), nv = root.querySelector('#f-newvendor'), payerInp = root.querySelector('#f-payer');
+      const sel = root.querySelector('#f-vendor'), nv = root.querySelector('#f-newvendor'), pt = root.querySelector('#f-paidto');
+      const payerInp = root.querySelector('#f-payer'), occInp = root.querySelector('#f-occ'), what = root.querySelector('#f-what');
       const syncVendor = () => {
-        const v = sel.value;
+        const v = sel.value, known = !!v && !v.startsWith('__');
         nv.classList.toggle('hidden', v !== '__new');
-        root.querySelector('#cat-field').classList.toggle('hidden', !!v && v !== '__new');
-        root.querySelector('#f-what').placeholder = v && v !== '__new' ? (d.vById[v]?.name || '') : t('whatForPh');
-        if (v === '__new') nv.focus();
+        pt.classList.toggle('hidden', v !== '__other');
+        root.querySelector('#cat-field').classList.toggle('hidden', known);    // a saved vendor already has its category
+        if (v === '__new') nv.focus(); else if (v === '__other' && !pt.value) pt.focus();
       };
       sel.addEventListener('change', syncVendor); syncVendor();
-      bindChips(root, f, g => { if (g === 'paidBy') { payerInp.value = ''; payerInp.classList.add('hidden'); } });
+      root.querySelectorAll('[data-fill]').forEach(b => b.addEventListener('click', () => { what.value = b.dataset.fill; root.querySelector('#e-what').classList.add('hidden'); }));
+      bindChips(root, f, g => {
+        if (g === 'paidBy') { payerInp.value = ''; payerInp.classList.add('hidden'); }
+        if (g === 'occ') { occInp.value = ''; occInp.classList.add('hidden'); }
+      });
       root.querySelector('#add-payer').addEventListener('click', () => {
         payerInp.classList.remove('hidden'); payerInp.focus();
         root.querySelectorAll('[data-group=paidBy] button[data-val]').forEach(x => x.classList.remove('on'));
       });
+      root.querySelector('#add-occ').addEventListener('click', () => {
+        occInp.classList.remove('hidden'); occInp.focus();
+        root.querySelectorAll('[data-group=occ] button[data-val]').forEach(x => x.classList.remove('on'));
+      });
+      // receipt photo: camera or gallery (the phone offers both), shrunk before saving
+      const photo = root.querySelector('#f-photo'), box = root.querySelector('#rc-box');
+      const drawRc = () => {
+        box.innerHTML = rcHTML();
+        box.querySelector('#rc-add')?.addEventListener('click', () => photo.click());
+        box.querySelector('#rc-change')?.addEventListener('click', () => photo.click());
+        box.querySelector('#rc-remove')?.addEventListener('click', () => { f.img = ''; f.removed = true; drawRc(); });
+        box.querySelector('#rc-img')?.addEventListener('click', () => openSheet({ html: () => `${sheetHead(t('receipt'))}<img src="${f.img}" alt="" style="width:100%;border-radius:14px;display:block">` }));
+      };
+      photo.addEventListener('change', async () => {
+        const file = photo.files && photo.files[0]; photo.value = '';
+        if (!file) return;
+        try { f.img = await compressImage(file); f.changed = true; f.removed = false; root.querySelector('#e-photo').classList.add('hidden'); }
+        catch (e) { showErr(root, 'e-photo', t('photoErr')); }
+        drawRc();
+      });
+      drawRc();
+      if (f.hadImg) store.get(wpath('receipts', p.id)).then(r => { if (!f.img && !f.removed) { f.img = r?.img || ''; f.loading = false; drawRc(); } })
+        .catch(() => { f.loading = false; drawRc(); });
       if (!p) setTimeout(() => root.querySelector('#f-amount').focus(), 250);
 
       root.querySelector('#f-save').addEventListener('click', () => {
         const amount = +digits(root.querySelector('#f-amount').value);
         if (!amount) return showErr(root, 'e-amount', t('needAmount'));
-        let vendorId = sel.value, ops = [];
+        let vendorId = sel.value, ops = [], paidTo = '';
         if (vendorId === '__new') {
           const name = nv.value.trim();
           if (!name) return showErr(root, 'e-vendor', t('needName'));
           vendorId = newId();
           ops.push({ path: wpath('vendors', vendorId), data: { name, categoryId: f.categoryId, agreed: 0, phone: '', dueDate: '', note: '', ...stamp(true) } });
-        }
+        } else if (vendorId === '__other') { paidTo = pt.value.trim(); vendorId = ''; }
         const vName = vendorId ? (d.vById[vendorId]?.name || nv.value.trim()) : '';
-        const what = root.querySelector('#f-what').value.trim() || vName;
-        if (!what) return showErr(root, 'e-what', t('needWhat'));
-        const paidBy = payerInp.value.trim() || f.paidBy;
+        const purpose = what.value.trim() || vName;
+        if (!purpose) return showErr(root, 'e-what', t('needWhat'));
+        const typedOcc = occInp.value.trim();
+        const occ = typedOcc ? 'o:' + typedOcc : f.occ || '';
+        const id = p ? p.id : newId();
         const data = {
-          amount, what, vendorId: vendorId || null,
+          amount, what: purpose, vendorId: vendorId || null, paidTo,
+          fnId: occ.startsWith('fn:') ? occ.slice(3) : '', occasion: occ.startsWith('o:') ? occ.slice(2) : '',
           categoryId: vendorId && d.vById[vendorId] ? d.vById[vendorId].categoryId || 'other' : f.categoryId || 'other',
-          paidBy, mode: f.mode, date: root.querySelector('#f-date').value || todayStr(),
+          paidBy: payerInp.value.trim() || f.paidBy, mode: f.mode, date: root.querySelector('#f-date').value || todayStr(),
           note: root.querySelector('#f-note').value.trim(), ...stamp(!p),
         };
-        ops.push({ path: wpath('payments', p ? p.id : newId()), data });
-        LS.set('sp.mode', f.mode);
+        if (f.changed && f.img) {            // new or replaced photo; an unchanged one is not re-uploaded
+          ops.push({ path: wpath('receipts', id), data: { img: f.img, ...stamp(true) }, merge: false });
+          data.hasReceipt = true;
+        } else if (f.removed && f.hadImg) { ops.push({ path: wpath('receipts', id), del: true }); data.hasReceipt = false; }
+        ops.push({ path: wpath('payments', id), data });
+        LS.set('sp.mode', f.mode); LS.set('sp.payocc', occ);
         store.batch(ops).catch(fail);
         closeSheet(); toast(t('saved'));
       });
@@ -1244,9 +1332,9 @@ function switchSheet() {
 /* ---------- CSV export ---------- */
 function exportCsv() {
   const d = derive();
-  const rows = [['Date', 'What for', 'Vendor', 'Category', 'Amount', 'Paid by', 'Mode', 'Note', 'Added by']];
-  [...d.P].sort(byDateDesc).forEach(p => rows.push([p.date, p.what, d.vById[p.vendorId]?.name || '', catName(d.cById[d.catOf(p)]),
-    p.amount, p.paidBy, STR.en.modes[p.mode] || p.mode, p.note, p.createdByName]));
+  const rows = [['Date', 'Purpose', 'Occasion', 'Paid to', 'Category', 'Amount', 'Paid by', 'Mode', 'Receipt photo', 'Note', 'Added by']];
+  [...d.P].sort(byDateDesc).forEach(p => rows.push([p.date, p.what, occName(p), d.vById[p.vendorId]?.name || p.paidTo || '', catName(d.cById[d.catOf(p)]),
+    p.amount, p.paidBy, STR.en.modes[p.mode] || p.mode, p.hasReceipt ? 'Yes' : '', p.note, p.createdByName]));
   rows.push([], ['Vendor', 'Category', 'Agreed', 'Paid', 'Balance', 'Next due', 'Phone']);
   [...d.V].sort(byName).forEach(v => rows.push([v.name, catName(d.cById[v.categoryId]), v.agreed || 0, d.vs[v.id].paid, d.vs[v.id].bal, v.dueDate, v.phone]));
   downloadCsv(rows, '');
@@ -1298,9 +1386,10 @@ const ACT = {
   view(el) { S.view = el.dataset.v; render(); window.scrollTo(0, 0); },
   'money-tab'(el) { S.view = 'money'; S.moneyTab = el.dataset.v; render(); window.scrollTo(0, 0); },
   fcat(el) { S.cat = el.dataset.id; render(); },
+  focc(el) { S.occ = el.dataset.id; render(); },
   'add-pay'() { paymentSheet(null); },
   'add-vendor'() { vendorSheet(null); },
-  pay(el) { const p = S.payments.find(x => x.id === el.dataset.id); if (p && canEdit()) paymentSheet(p); else if (p?.vendorId) vendorDetail(p.vendorId); },
+  pay(el) { const p = S.payments.find(x => x.id === el.dataset.id); if (p && canEdit()) paymentSheet(p); else if (p?.hasReceipt) receiptView(p.id); else if (p?.vendorId) vendorDetail(p.vendorId); },
   vendor(el) { vendorDetail(el.dataset.id); },
   'edit-vendor'(el) { vendorSheet(S.vendors.find(x => x.id === el.dataset.id)); },
   'pay-vendor'(el) { paymentSheet(null, el.dataset.id); },
@@ -1374,7 +1463,7 @@ function stopAll() {
   [...unsubs, ...moneyUnsubs].forEach(u => { try { u(); } catch (e) {} });
   if (pinUnsub) { try { pinUnsub(); } catch (e) {} pinUnsub = null; }
   unsubs = []; moneyUnsubs = [];
-  Object.assign(S, { wid: null, wedding: null, members: [], me: null, payments: [], vendors: [], categories: [], pend: {}, cat: 'all', q: '', famPin: '', functions: [], tasks: [], showDone: {}, setupSel: null, guests: [], shagun: [], gq: '', shq: '' });
+  Object.assign(S, { wid: null, wedding: null, members: [], me: null, payments: [], vendors: [], categories: [], pend: {}, cat: 'all', occ: 'all', q: '', famPin: '', functions: [], tasks: [], showDone: {}, setupSel: null, guests: [], shagun: [], gq: '', shq: '' });
 }
 let pinUnsub = null;
 // Only the owner can read the family PIN. Weddings made before PINs existed get the owner's login PIN.

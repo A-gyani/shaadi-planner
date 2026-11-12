@@ -1,5 +1,5 @@
 // Shaadi Planner service worker — lets the app open with no signal.
-const CACHE = 'shaadi-v7';
+const CACHE = 'shaadi-v8';
 const SHELL = ['./', 'index.html', 'app.js', 'store.js', 'i18n.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 // Third-party files we may cache (fonts, icons, Firebase SDK). Everything else —
 // especially Firestore and Firebase login traffic — passes straight through.

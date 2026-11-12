@@ -75,8 +75,8 @@ export const STR = {
     addPayment: 'Paid money',
     editPayment: 'Edit payment',
     amount: 'Amount (₹)',
-    whatFor: 'What for?',
-    whatForPh: 'e.g. Tent advance, saree',
+    whatFor: 'Purpose (what for?)',
+    whatForPh: 'e.g. Sweets, tent advance, saree',
     vendor: 'Vendor',
     noVendor: 'No vendor',
     newVendorInline: '+ New vendor',
@@ -193,6 +193,13 @@ export const STR = {
     fnCount: n => n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n > 0 ? `in ${n} days` : 'Done',
     noDateShort: 'Date not set',
 
+    // payments: occasion, paid to, receipt
+    payOccasion: 'For which occasion?', noOccasion: 'None in particular', newOccasion: '+ New occasion',
+    occasionPh: 'e.g. Diwali gifts', allOcc: 'All occasions',
+    paidTo: 'Paid to (optional)', paidToOther: '✎ Type a shop / person name', paidToPh: 'e.g. the sweet shop in the market',
+    receipt: 'Receipt photo', addReceipt: 'Take or choose a receipt photo', changeReceipt: 'Change', removeReceipt: 'Remove',
+    photoErr: 'Could not read that photo. Try another.',
+
     // install
     installTitle: 'Install the app', installHint: 'Opens from your home screen like any app, even without internet.',
     installBtn: 'Install', notNow: 'Not now', installed: 'Installed. Find it on your home screen.',
@@ -308,8 +315,8 @@ export const STR = {
     addPayment: 'पैसे दिए',
     editPayment: 'भुगतान बदलें',
     amount: 'रकम (₹)',
-    whatFor: 'किस लिए?',
-    whatForPh: 'जैसे: टेंट का एडवांस, साड़ी',
+    whatFor: 'किस लिए? (खर्च का मकसद)',
+    whatForPh: 'जैसे: मिठाई, टेंट का एडवांस, साड़ी',
     vendor: 'वेंडर',
     noVendor: 'कोई वेंडर नहीं',
     newVendorInline: '+ नया वेंडर',
@@ -421,6 +428,12 @@ export const STR = {
     nextJobs: 'आगे के काम', allJobsDone: 'सारे काम हो गए।',
     fnCount: n => n === 0 ? 'आज' : n === 1 ? 'कल' : n > 0 ? `${n} दिन बाद` : 'हो गई',
     noDateShort: 'तारीख़ तय नहीं',
+
+    payOccasion: 'किस मौके के लिए?', noOccasion: 'कोई खास नहीं', newOccasion: '+ नया मौका',
+    occasionPh: 'जैसे: दिवाली के उपहार', allOcc: 'सभी मौके',
+    paidTo: 'किसको दिए? (ज़रूरी नहीं)', paidToOther: '✎ दुकान या व्यक्ति का नाम लिखें', paidToPh: 'जैसे: बाज़ार वाली मिठाई की दुकान',
+    receipt: 'रसीद की फ़ोटो', addReceipt: 'रसीद की फ़ोटो खींचें या चुनें', changeReceipt: 'बदलें', removeReceipt: 'हटाएँ',
+    photoErr: 'यह फ़ोटो नहीं खुली। दूसरी आज़माएँ।',
 
     installTitle: 'ऐप इंस्टॉल करें', installHint: 'होम स्क्रीन से किसी भी ऐप की तरह खुलेगा, बिना इंटरनेट के भी।',
     installBtn: 'इंस्टॉल करें', notNow: 'अभी नहीं', installed: 'इंस्टॉल हो गया। होम स्क्रीन पर देखें।',
