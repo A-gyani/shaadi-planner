@@ -523,12 +523,36 @@ function tderive() {
   return { fns, fnById, T, byOrder };
 }
 const mine = x => !!S.me?.name && x.who === S.me.name;
+const fmtTime = s => s ? new Date('2000-01-01T' + s).toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' }) : '';
+const dirUrl = f => (/^https?:\/\//i.test(f.mapUrl || '') ? f.mapUrl : '') || (f.venue || f.address ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent([f.venue, f.address].filter(Boolean).join(', ')) : '');
+const fnMsg = f => [`*${fnName(f)}*${S.wedding?.name ? ' · ' + S.wedding.name : ''}`,
+  f.date ? '📅 ' + fmtD(f.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + (f.time ? ' · ' + fmtTime(f.time) : '') : '',
+  f.venue || f.address ? '📍 ' + [f.venue, f.address].filter(Boolean).join(', ') : '', dirUrl(f)].filter(Boolean).join('\n');
+// time, venue and the two buttons, for a रस्म that has any of them
+const fnPlaceHTML = f => (f.time || f.venue || f.address || f.mapUrl) ? `<div class="fn-place">
+    ${f.time || f.venue ? `<div><i class="ph ph-map-pin"></i> ${[f.time ? fmtTime(f.time) : '', esc(f.venue || '')].filter(Boolean).join(' · ')}</div>` : ''}
+    ${f.address ? `<div class="small muted" style="white-space:pre-line">${esc(f.address)}</div>` : ''}
+    <div class="btns" style="margin-top:8px">
+      ${dirUrl(f) ? `<a class="btn ghost sm" href="${esc(dirUrl(f))}" target="_blank" rel="noopener"><i class="ph ph-navigation-arrow"></i> ${t('directions')}</a>` : ''}
+      <a class="btn ghost sm" href="https://wa.me/?text=${encodeURIComponent(fnMsg(f))}" target="_blank" rel="noopener"><i class="ph ph-whatsapp-logo"></i> ${t('shareGuests')}</a></div></div>` : '';
+function fnInfoSheet(id) {
+  openSheet({
+    live: true,
+    html: () => {
+      const f = S.functions.find(x => x.id === id); if (!f) return sheetHead('');
+      return `${sheetHead(fnName(f), canEdit() ? `<button class="x" data-act="fn" data-id="${f.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
+        <div class="muted" style="margin:-8px 0 12px">${f.date ? fmtD(f.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + fnCountdown(f) : t('noDateShort')}</div>
+        ${fnPlaceHTML(f) || `<div class="card small muted">${t('noPlace')}${canEdit() ? ` <button class="link" data-act="fn" data-id="${f.id}">${t('addPlace')}</button>` : ''}</div>`}
+        <button class="btn gold block" data-act="fn-tasks" data-id="${f.id}" style="margin-top:12px"><i class="ph ph-check-square"></i> ${t('seeTasks')}</button>`;
+    },
+  });
+}
 const fnCountdown = f => f.date ? t('fnCount', daysUntil(f.date)) : t('noDateShort');
 
 function fnStripHTML() {
   const { fns } = tderive(), up = fns.filter(f => !f.date || daysUntil(f.date) >= 0);
   if (!up.length) return '';
-  return `<div class="fn-strip">${up.map(f => `<button class="fn-chip" data-act="view" data-v="tasks">
+  return `<div class="fn-strip">${up.map(f => `<button class="fn-chip" data-act="fn-info" data-id="${f.id}">
     <div class="n"><i class="ph ph-${f.icon || 'star'}"></i> ${esc(fnName(f))}</div>
     <div class="d">${f.date ? fmtD(f.date, { day: 'numeric', month: 'short' }) : '&nbsp;'}</div>
     <div class="c">${fnCountdown(f)}</div></button>`).join('')}</div>`;
@@ -585,7 +609,7 @@ function tasksHTML() {
           ${mineView ? '' : `<i class="ph ph-caret-${isOpen ? 'up' : 'down'} fold-ic"></i>`}</button>
         ${f.id && canEdit() && isOpen ? `<button class="x" data-act="fn" data-id="${f.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : ''}
       </div>
-      ${isOpen ? `${open.map(x => taskRow(x, fnById, false)).join('') || (done.length ? '' : `<div class="empty small" style="padding:14px">${t('noTasksFn')}</div>`)}
+      ${isOpen ? `${f.id ? fnPlaceHTML(f) : ''}${open.map(x => taskRow(x, fnById, false)).join('') || (done.length ? '' : `<div class="empty small" style="padding:14px">${t('noTasksFn')}</div>`)}
       ${done.length ? `<button class="add-row muted" data-act="show-done" data-id="${key}"><i class="ph ph-caret-${showD ? 'up' : 'down'}"></i> ${t('doneCount', done.length)}</button>` : ''}
       ${showD ? done.map(x => taskRow(x, fnById, false)).join('') : ''}
       ${canEdit() ? `<button class="add-row" data-act="add-task" data-fn="${f.id}">${t('addTaskHere')}</button>` : ''}` : ''}
@@ -687,21 +711,40 @@ function fnSheet(fn) {
     html: () => `${sheetHead(fn ? t('editFn') : t('addFn').replace('+ ', ''))}
       ${fn ? '' : `<div class="field"><div class="chips" data-group="pick">${choices.map(d => chip(d.id, fnName(d), f.pick === d.id, d.icon)).join('')}${chip('other', t('fnOther'), f.pick === 'other', 'plus')}</div></div>`}
       <div class="field ${fn || f.pick === 'other' ? '' : 'hidden'}" id="fn-name-f"><label for="fn-name">${t('fnName')}</label><input class="inp" id="fn-name" value="${esc(fn ? fnName(fn) : '')}"><div class="err hidden" id="e-fname"></div></div>
-      <div class="field"><label for="fn-date">${t('date')}</label><input class="inp" id="fn-date" type="date" value="${fn?.date || ''}"></div>
+      <div class="field two"><div><label class="lbl" for="fn-date">${t('date')}</label><input class="inp" id="fn-date" type="date" value="${fn?.date || ''}"></div>
+        <div><label class="lbl" for="fn-time">${t('fnTime')}</label><input class="inp" id="fn-time" type="time" value="${fn?.time || ''}"></div></div>
+      <div class="field"><label for="fn-venue">${t('venue')}</label><input class="inp" id="fn-venue" placeholder="${esc(t('venuePh'))}" value="${esc(fn?.venue || '')}"></div>
+      <div class="field"><label for="fn-addr">${t('address')}</label><textarea class="inp" id="fn-addr" rows="2">${esc(fn?.address || '')}</textarea></div>
+      <div class="field"><label for="fn-map">${t('location')}</label><input class="inp" id="fn-map" type="url" placeholder="${esc(t('locationPh'))}" value="${esc(fn?.mapUrl || '')}">
+        <button type="button" class="btn ghost sm" id="fn-here" style="margin-top:8px"><i class="ph ph-crosshair"></i> ${t('hereBtn')}</button><div class="err hidden" id="e-loc"></div></div>
       <div class="btns">${fn ? `<button class="btn danger" id="fn-del"><i class="ph ph-trash"></i> ${t('delete')}</button>` : ''}
         <button class="btn gold" id="fn-save"><i class="ph ph-check"></i> ${t('save')}</button></div>`,
     bind: root => {
       bindChips(root, f, () => root.querySelector('#fn-name-f').classList.toggle('hidden', f.pick !== 'other'));
+      // "my current location": only asks the phone for location when tapped
+      root.querySelector('#fn-here').addEventListener('click', e => {
+        const b = e.currentTarget, label = b.innerHTML;
+        if (!navigator.geolocation) return showErr(root, 'e-loc', t('locErr'));
+        b.disabled = true; b.textContent = t('locating');
+        navigator.geolocation.getCurrentPosition(pos => {
+          root.querySelector('#fn-map').value = `https://maps.google.com/?q=${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`;
+          b.disabled = false; b.innerHTML = label; root.querySelector('#e-loc').classList.add('hidden'); toast(t('locSet'));
+        }, () => { b.disabled = false; b.innerHTML = label; showErr(root, 'e-loc', t('locErr')); }, { enableHighAccuracy: true, timeout: 15000 });
+      });
       root.querySelector('#fn-save').addEventListener('click', () => {
         const name = root.querySelector('#fn-name').value.trim(), date = root.querySelector('#fn-date').value || '';
+        const place = { time: root.querySelector('#fn-time').value || '', venue: root.querySelector('#fn-venue').value.trim(),
+          address: root.querySelector('#fn-addr').value.trim(), mapUrl: root.querySelector('#fn-map').value.trim() };
         if (fn) {
           if (!name) return showErr(root, 'e-fname', t('needName'));
-          put(wpath('functions', fn.id), { date, ...(name !== fnName(fn) ? { name } : {}), ...stamp(false) });
+          put(wpath('functions', fn.id), { date, ...place, ...(name !== fnName(fn) ? { name } : {}), ...stamp(false) });
         } else if (f.pick === 'other') {
           if (!name) return showErr(root, 'e-fname', t('needName'));
-          store.batch(fnOps([{ id: newId(), name, icon: 'star', date }], 50 + S.functions.length)).catch(fail);
+          const ops = fnOps([{ id: newId(), name, icon: 'star', date }], 50 + S.functions.length); Object.assign(ops[0].data, place);
+          store.batch(ops).catch(fail);
         } else {
-          store.batch(fnOps([{ ...DEFAULT_FUNCTIONS.find(d => d.id === f.pick), date }], 50 + S.functions.length)).catch(fail);
+          const ops = fnOps([{ ...DEFAULT_FUNCTIONS.find(d => d.id === f.pick), date }], 50 + S.functions.length); Object.assign(ops[0].data, place);
+          store.batch(ops).catch(fail);
         }
         closeSheet(); toast(t('saved'));
       });
@@ -1113,6 +1156,7 @@ function occDetail(key) {
       return `${sheetHead(occLabel(key), canEdit() && key.startsWith('fn:') ? `<button class="x" data-act="fn" data-id="${key.slice(3)}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>`
         : o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
         ${o?.date ? `<div class="muted small" style="margin:-8px 0 12px">${fmtD(o.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}
+        ${key.startsWith('fn:') && S.functions.find(x => x.id === key.slice(3)) ? `<div style="margin-bottom:12px">${fnPlaceHTML(S.functions.find(x => x.id === key.slice(3)))}</div>` : ''}
         <div class="stats">
           <div class="stat full"><div class="lb">${t('totalPaid')} · ${t('payN', ps.length)}</div><div class="v">${inr(tot)}</div><div class="w">${words(tot)}</div>
             ${key.startsWith('fn:') ? (() => { const pl = fnPlan(key.slice(3)); return pl
@@ -1366,7 +1410,9 @@ function vendorSheet(v) {
       <div class="field"><label>${t('category')}</label><div class="chips" data-group="categoryId">${d.cats.map(c => chip(c.id, catName(c), f.categoryId === c.id)).join('')}</div></div>
       <div class="field"><label for="v-agreed">${t('agreed')}</label><input class="inp" id="v-agreed" inputmode="numeric" autocomplete="off" placeholder="0" value="${v?.agreed ? Math.round(v.agreed) : ''}">
         <div class="amt-words" id="v-words"></div><div class="hint">${t('agreedHint')}</div></div>
+      <div class="field"><label for="v-contact">${t('contactPerson')}</label><input class="inp" id="v-contact" value="${esc(v?.contact || '')}"></div>
       <div class="field"><label for="v-phone">${t('phone')}</label><input class="inp" id="v-phone" type="tel" inputmode="tel" value="${esc(v?.phone || '')}"></div>
+      <div class="field"><label for="v-addr">${t('address')}</label><textarea class="inp" id="v-addr" rows="2">${esc(v?.address || '')}</textarea></div>
       <div class="field"><label for="v-due">${t('nextDue')}</label><input class="inp" id="v-due" type="date" value="${v?.dueDate || ''}"></div>
       <div class="field"><label for="v-note">${t('note')}</label><textarea class="inp" id="v-note" rows="2" placeholder="${esc(t('notePh'))}">${esc(v?.note || '')}</textarea></div>
       <div class="btns">${v ? `<button class="btn danger" id="v-del"><i class="ph ph-trash"></i> ${t('delete')}</button>` : ''}
@@ -1381,6 +1427,7 @@ function vendorSheet(v) {
         put(wpath('vendors', v ? v.id : newId()), {
           name, categoryId: f.categoryId, agreed: +digits(root.querySelector('#v-agreed').value) || 0,
           phone: root.querySelector('#v-phone').value.trim(), dueDate: root.querySelector('#v-due').value || '',
+          contact: root.querySelector('#v-contact').value.trim(), address: root.querySelector('#v-addr').value.trim(),
           note: root.querySelector('#v-note').value.trim(), ...stamp(!v),
         });
         closeSheet(); toast(t('saved'));
@@ -1407,10 +1454,15 @@ function vendorDetail(vid) {
           <div class="stat due"><div class="lb">${t('balance')}</div><div class="v">${ag ? inr(s.bal) : '—'}</div><div class="w">${ag ? t('agreed').replace(' (₹)', '') + ': ' + inr(ag) : t('noAgreed')}</div></div>
         </div>
         ${ag ? budgetBar(s.paid, s.bal, ag) : ''}
+        ${v.contact || v.phone || v.address ? `<div class="list" style="margin:12px 0 0">
+          ${v.contact ? `<div class="row kv"><span class="k">${t('contactPerson')}</span><span class="vv">${esc(v.contact)}</span></div>` : ''}
+          ${v.phone ? `<div class="row kv"><span class="k">${t('phone')}</span><span class="vv">${esc(v.phone)}</span></div>` : ''}
+          ${v.address ? `<div class="row kv"><span class="k">${t('address')}</span><span class="vv" style="white-space:pre-line">${esc(v.address)}</span></div>` : ''}</div>` : ''}
         ${v.note ? `<p class="small" style="background:#fff;border-radius:12px;padding:10px 12px;margin:12px 0 0">${esc(v.note)}</p>` : ''}
         <div class="btns" style="flex-wrap:wrap">
           ${v.phone ? `<a class="btn ghost" href="tel:${esc(digits(v.phone))}"><i class="ph ph-phone"></i> ${t('call')}</a>
             <a class="btn ghost" href="https://wa.me/${waNum(v.phone)}" target="_blank" rel="noopener"><i class="ph ph-whatsapp-logo"></i> ${t('whatsapp')}</a>` : ''}
+          ${v.phone || v.address ? `<a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent([v.name, v.contact, v.phone, v.address].filter(Boolean).join('\n'))}" target="_blank" rel="noopener"><i class="ph ph-share-network"></i> ${t('share')}</a>` : ''}
           ${canEdit() ? `<button class="btn gold block" data-act="pay-vendor" data-id="${vid}"><i class="ph ph-hand-coins"></i> ${t('payThisVendor')}</button>` : ''}
         </div>
         <div class="sec-h"><h2>${t('paymentsMade')}</h2></div>
@@ -1618,6 +1670,8 @@ const ACT = {
   focc(el) { S.occ = el.dataset.id; render(); },
   'add-pay'(el) { paymentSheet(null, undefined, el.dataset.occ); },
   'occ-open'(el) { occDetail(el.dataset.k); },
+  'fn-info'(el) { fnInfoSheet(el.dataset.id); },
+  'fn-tasks'(el) { closeAllSheets(); S.view = 'tasks'; S.taskFilter = 'all'; S.open.add(el.dataset.id); LS.set('sp.open', JSON.stringify([...S.open])); render(); window.scrollTo(0, 0); },
   'budget-by'(el) { S.budgetBy = el.dataset.v; render(); },
   'fn-budget'(el) { fnBudgetSheet(el.dataset.id); },
   'occ-new'() { occSheet(null); },
