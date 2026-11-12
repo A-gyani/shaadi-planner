@@ -8,7 +8,11 @@
 <meta name="theme-color" content="#8c1c3a">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="शादी प्लानर">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -222,6 +226,14 @@ details.more[open] summary{margin-bottom:10px}
 .fn-chip .n i{color:var(--maroon)}
 .fn-chip .d{font-size:.78rem;color:var(--muted)}
 .fn-chip .c{font-size:.82rem;font-weight:700;color:var(--gold-ink)}
+/* ---------- install ---------- */
+.install{display:flex;align-items:center;gap:12px;background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:14px;border:1.5px solid var(--gold-soft)}
+.install img{width:44px;height:44px;border-radius:11px;flex:none}
+.install .mid{flex:1;min-width:0}
+.install .t{font-weight:700}
+.install .s{font-size:.8rem;color:var(--muted)}
+.steps{margin:0 0 14px;padding-left:22px}
+.steps li{margin-bottom:10px;line-height:1.45}
 /* ---------- guests & shagun ---------- */
 .row .ic.green{background:var(--green-soft);color:var(--green)}
 .row .avatar{width:40px;height:40px;border-radius:50%;background:var(--gold-soft);color:var(--gold-ink);display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}

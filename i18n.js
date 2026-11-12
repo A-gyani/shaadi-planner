@@ -193,6 +193,13 @@ export const STR = {
     fnCount: n => n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n > 0 ? `in ${n} days` : 'Done',
     noDateShort: 'Date not set',
 
+    // install
+    installTitle: 'Install the app', installHint: 'Opens from your home screen like any app, even without internet.',
+    installBtn: 'Install', notNow: 'Not now', installed: 'Installed. Find it on your home screen.',
+    installIos: ['Tap the Share button (square with an arrow) at the bottom of Safari', 'Scroll down and tap “Add to Home Screen”', 'Tap “Add”'],
+    installIosNote: 'On iPhone this works in Safari only.',
+    installAndroid: ['Open this link in Chrome (if it opened inside WhatsApp, tap ⋮ → “Open in Chrome”)', 'Tap ⋮ at the top right', 'Tap “Install app” or “Add to Home screen”'],
+
     // guests & shagun (phase 3)
     navGuests: 'Guests',
     segGuests: 'Guest list', segShagun: 'Shagun',
@@ -414,6 +421,12 @@ export const STR = {
     nextJobs: 'आगे के काम', allJobsDone: 'सारे काम हो गए।',
     fnCount: n => n === 0 ? 'आज' : n === 1 ? 'कल' : n > 0 ? `${n} दिन बाद` : 'हो गई',
     noDateShort: 'तारीख़ तय नहीं',
+
+    installTitle: 'ऐप इंस्टॉल करें', installHint: 'होम स्क्रीन से किसी भी ऐप की तरह खुलेगा, बिना इंटरनेट के भी।',
+    installBtn: 'इंस्टॉल करें', notNow: 'अभी नहीं', installed: 'इंस्टॉल हो गया। होम स्क्रीन पर देखें।',
+    installIos: ['Safari में नीचे Share बटन (तीर वाला चौकोर) दबाएँ', 'नीचे जाकर “Add to Home Screen” दबाएँ', '“Add” दबाएँ'],
+    installIosNote: 'iPhone पर यह सिर्फ़ Safari में होता है।',
+    installAndroid: ['यह लिंक Chrome में खोलें (WhatsApp के अंदर खुला हो तो ⋮ → “Open in Chrome” दबाएँ)', 'ऊपर दाईं ओर ⋮ दबाएँ', '“Install app” या “Add to Home screen” दबाएँ'],
 
     navGuests: 'मेहमान',
     segGuests: 'मेहमान', segShagun: 'शगुन',

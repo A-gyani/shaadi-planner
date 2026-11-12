@@ -145,6 +145,30 @@ function render() {                    // coalesces bursts of snapshot updates i
 const LOGO = `<img class="logo" src="icon.svg" alt="">`;
 const spinner = () => `<div class="screen"><div class="wrap" style="text-align:center"><span class="spin"></span><p class="muted">${t('loading')}</p></div></div>`;
 const langToggle = () => `<div class="lang-toggle"><button data-act="lang" data-v="hi" class="${S.lang === 'hi' ? 'on' : ''}">हिन्दी</button><button data-act="lang" data-v="en" class="${S.lang === 'en' ? 'on' : ''}">English</button></div>`;
+/* ---------- install as an app ---------- */
+let installEvt = null;                       // Chrome/Android's install prompt, saved for our own button
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; render(); });
+window.addEventListener('appinstalled', () => { installEvt = null; LS.set('sp.installed', '1'); render(); toast(t('installed')); });
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canInstall = () => !isStandalone() && !LS.get('sp.installed') && (!!installEvt || isIOS() || /android/i.test(navigator.userAgent));
+const installBanner = () => canInstall() && !LS.get('sp.installHide') ? `<div class="install"><img src="icon-192.png" alt="">
+  <div class="mid"><div class="t">${t('installTitle')}</div><div class="s">${t('installHint')}</div></div>
+  <button class="btn gold sm" data-act="install">${t('installBtn')}</button>
+  <button class="x" data-act="install-hide" aria-label="${esc(t('notNow'))}"><i class="ph ph-x"></i></button></div>` : '';
+async function installApp() {
+  if (installEvt) {
+    const e = installEvt; installEvt = null;
+    e.prompt();
+    try { const r = await e.userChoice; if (r.outcome === 'accepted') LS.set('sp.installed', '1'); } catch (err) {}
+    render(); return;
+  }
+  const ios = isIOS(), steps = ios ? t('installIos') : t('installAndroid');
+  openSheet({ html: () => `${sheetHead(t('installTitle'))}
+    <ol class="steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+    ${ios ? `<p class="small muted">${t('installIosNote')}</p>` : ''}
+    <button class="btn gold block" data-act="close"><i class="ph ph-check"></i> OK</button>` });
+}
 const demoBar = () => S.demo ? `<div class="demo-bar"><i class="ph ph-info"></i> ${t('demoBanner')}</div>` : '';
 
 function screenHTML() {
@@ -173,7 +197,7 @@ function loginHTML() {
       <p class="muted small" style="margin:0 0 12px">${t('pinHint')}</p>
       <div class="err ${S.loginErr ? '' : 'hidden'}" id="li-err">${esc(S.loginErr || '')}</div>
       <button class="btn block gold" data-act="login" id="login-btn"><i class="ph ph-sign-in"></i> ${t('login')}</button>
-    </div>${langToggle()}</div></div>`;
+    </div>${installBanner()}${langToggle()}</div></div>`;
 }
 const cleanPhone = s => { const d = digits(s); return d.length > 10 && /^(91|0)/.test(d) ? d.slice(-10) : d; };
 function authMsg(e) {
@@ -236,7 +260,7 @@ function appHTML() {
   else if (S.view === 'more') body = moreHTML();
   else if (S.view === 'tasks') body = tasksHTML();
   else if (S.view === 'guests') body = guestsHTML();
-  else body = homeHTML();
+  else body = installBanner() + homeHTML();
   return `${demoBar()}
   <header class="top"><div class="wrap"><h1>${esc(S.wedding?.name || '')}</h1>${chips.join('')}</div></header>
   <main><div class="wrap">${body}</div></main>
@@ -890,6 +914,7 @@ function moreHTML() {
     ${seesMoney() && liveShagun().length ? `<button class="menu-row" data-act="export" data-v="shagun"><i class="ph ph-download-simple"></i>${t('exportShagun')}</button>` : ''}
     ${canEdit() ? `<button class="menu-row" data-act="trash"><i class="ph ph-trash"></i>${t('trash')}</button>` : ''}
     ${ws.length > 1 ? `<button class="menu-row" data-act="switch"><i class="ph ph-swap"></i>${t('switchWedding')}</button>` : ''}
+    ${!isStandalone() ? `<button class="menu-row" data-act="install"><i class="ph ph-download-simple"></i>${t('installTitle')}</button>` : ''}
     <button class="menu-row" data-act="new-wedding"><i class="ph ph-plus-circle"></i>${t('newWedding')}</button>
     <button class="menu-row" data-act="signout"><i class="ph ph-sign-out"></i>${t('signOut')}<span class="r">${esc(S.user?.phone || '')}</span></button>
     ${S.demo ? `<button class="menu-row" data-act="reset-demo"><i class="ph ph-arrow-counter-clockwise"></i>${t('resetDemo')}</button>` : ''}
@@ -1310,6 +1335,8 @@ const ACT = {
   'add-fn'() { fnSheet(null); },
   'setup-pick'(el) { const id = el.dataset.id, a = S.setupSel || []; S.setupSel = a.includes(id) ? a.filter(x => x !== id) : [...a, id]; render(); },
   'setup-go': setupGo,
+  install() { installApp(); },
+  'install-hide'() { LS.set('sp.installHide', '1'); render(); },
   gtab(el) { S.guestTab = el.dataset.v; render(); window.scrollTo(0, 0); },
   gfilter(el) { S.gFilter = el.dataset.v; render(); },
   guest(el) { const g = S.guests.find(x => x.id === el.dataset.id); if (g) guestSheet(g); },
