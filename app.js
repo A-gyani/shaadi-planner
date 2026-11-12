@@ -142,7 +142,7 @@ function render() {                    // coalesces bursts of snapshot updates i
   });
 }
 
-const LOGO = `<img class="logo" src="icon.svg" alt="">`;
+const LOGO = `<img class="logo" src="icon-512.png" alt="">`;
 const spinner = () => `<div class="screen"><div class="wrap" style="text-align:center"><span class="spin"></span><p class="muted">${t('loading')}</p></div></div>`;
 const langToggle = () => `<div class="lang-toggle"><button data-act="lang" data-v="hi" class="${S.lang === 'hi' ? 'on' : ''}">हिन्दी</button><button data-act="lang" data-v="en" class="${S.lang === 'en' ? 'on' : ''}">English</button></div>`;
 /* ---------- install as an app ---------- */
