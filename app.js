@@ -38,7 +38,7 @@ const S = {
   lang: LS.get('sp.lang'), screen: 'boot', demo: false,
   user: null, userDoc: {}, wid: null, wedding: null, members: [], me: null,
   payments: [], vendors: [], categories: [], functions: [], tasks: [], pend: {},
-  view: 'home', moneyTab: 'occasions', cat: 'all', occ: 'all', q: '', occasions: [],
+  view: 'home', moneyTab: 'occasions', budgetBy: 'fn', cat: 'all', occ: 'all', q: '', occasions: [],
   taskFilter: 'all', showDone: {}, setupSel: null, open: new Set((() => { try { return JSON.parse(LS.get('sp.open', '[]')); } catch (e) { return []; } })()),
   guests: [], shagun: [], guestTab: 'list', gFilter: 'all', gq: '', shDir: 'all', shq: '',
 };
@@ -51,6 +51,7 @@ const seesMoney = () => canEdit() || !!S.me?.money;
 const myWeddings = () => Object.entries(S.userDoc?.weddings || {}).filter(([, w]) => w && !w.gone).map(([id, w]) => ({ id, ...w }));
 const catName = c => c ? (c.name || (S.lang === 'hi' ? c.hi || c.en : c.en || c.hi) || '') : '';
 
+const fnPlan = id => +(S.occasions.find(o => o.id === id && o.kind === 'budget')?.planned) || 0;
 function derive() {
   const P = S.payments.filter(p => !p.deleted), V = S.vendors.filter(v => !v.deleted);
   const vById = Object.fromEntries(S.vendors.map(v => [v.id, v]));
@@ -72,8 +73,9 @@ function derive() {
   });
   const dues = V.filter(v => vs[v.id].bal > 0).sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   const planned = cats.reduce((s, c) => s + (+c.planned || 0), 0);
-  const budget = +S.wedding?.budget || planned;
-  return { P, V, vById, cats, cById, catOf, vs, catPaid, catDue, paid, due, dues, planned, budget };
+  const fnPlanned = S.functions.filter(f => !f.deleted).reduce((s, f) => s + fnPlan(f.id), 0);
+  const budget = +S.wedding?.budget || Math.max(planned, fnPlanned);
+  return { P, V, vById, cats, cById, catOf, vs, catPaid, catDue, paid, due, dues, planned, fnPlanned, budget };
 }
 
 /* ============================== writes ============================== */
@@ -402,9 +404,45 @@ function budgetHTML(d) {
       ${B ? `<b class="small" style="color:${over ? 'var(--red)' : 'var(--green)'}">${over ? t('overBy', inr(est - B)) : t('leftAmt', inr(B - est))}</b>` : ''}
     </div>
   </div>
-  <p class="muted small" style="margin:0 4px 10px">${t('budgetHint')}</p>
+  <div class="seg">${[['fn', t('budgetByFn')], ['cat', t('byCategory')]].map(([v, lb]) =>
+    `<button data-act="budget-by" data-v="${v}" class="${S.budgetBy === v ? 'on' : ''}">${lb}</button>`).join('')}</div>
+  ${S.budgetBy === 'cat' ? `<p class="muted small" style="margin:0 4px 10px">${t('budgetHint')}</p>
   <div class="list">${d.cats.map(c => catRow(c, d)).join('')}</div>
-  ${canEdit() ? `<button class="btn ghost block" data-act="add-cat">${t('addCategory')}</button>` : ''}`;
+  ${canEdit() ? `<button class="btn ghost block" data-act="add-cat">${t('addCategory')}</button>` : ''}` : fnBudgetHTML(d)}`;
+}
+function fnBudgetHTML(d) {
+  const by = occTotals(d), rows = occList().filter(o => o.key.startsWith('fn:'));
+  const sum = a => (a || []).reduce((s, p) => s + (+p.amount || 0), 0);
+  const B = d.budget, unplanned = B ? B - d.fnPlanned : 0;
+  return `<p class="muted small" style="margin:0 4px 10px">${t('fnBudgetHint')}</p>
+    ${d.fnPlanned ? `<div class="total-line"><span>${t('fnPlanTotal')}</span><span>${inr(d.fnPlanned)}${B && unplanned ? ` <span class="small" style="color:${unplanned < 0 ? 'var(--red)' : 'var(--muted)'};font-weight:600">· ${unplanned < 0 ? t('overBy', inr(-unplanned)) : t('notAssigned', inr(unplanned))}</span>` : ''}</span></div>` : ''}
+    <div class="list">${rows.map(o => {
+      const id = o.key.slice(3), paid = sum(by[o.key]), pl = fnPlan(id), over = pl && paid > pl;
+      return `<button class="row" data-act="${canEdit() ? 'fn-budget' : 'noop'}" data-id="${id}" style="flex-wrap:wrap;row-gap:0">
+        <span class="ic gold"><i class="ph ph-${o.icon}"></i></span>
+        <span class="mid"><div class="t">${esc(o.name)}</div><div class="s">${t('legendPaid')} ${inr(paid)}${o.date ? ' · ' + fmtD(o.date) : ''}</div></span>
+        <span class="amt">${pl ? inr(pl) : '<span class="muted">—</span>'}<div class="s">${pl ? (over ? `<span style="color:var(--red)">${t('overBy', inr(paid - pl))}</span>` : t('leftAmt', inr(pl - paid))) : t('planned')}</div></span>
+        ${pl || paid ? `<div style="flex-basis:100%;padding-left:52px">${budgetBar(paid, 0, pl).replace('class="bar', 'class="bar thin')}</div>` : ''}
+      </button>`; }).join('')}
+    ${by[''] ? `<div class="row"><span class="ic gold"><i class="ph ph-dots-three-circle"></i></span><span class="mid"><div class="t">${t('noOccasion')}</div><div class="s">${t('legendPaid')} ${inr(sum(by['']))}</div></span></div>` : ''}</div>
+    ${canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : ''}`;
+}
+function fnBudgetSheet(id) {
+  const f = S.functions.find(x => x.id === id); if (!f) return;
+  const pl = fnPlan(id);
+  openSheet({
+    html: () => `${sheetHead(t('fnBudgetTitle', fnName(f)))}
+      <div class="field"><label for="fb-amt">${t('plannedAmt')}</label><input class="inp amt-inp" id="fb-amt" inputmode="numeric" placeholder="0" value="${pl ? Math.round(pl) : ''}"><div class="amt-words" id="fb-words"></div></div>
+      <button class="btn gold block" id="fb-save"><i class="ph ph-check"></i> ${t('save')}</button>`,
+    bind: root => {
+      bindAmount(root, '#fb-amt', '#fb-words');
+      setTimeout(() => root.querySelector('#fb-amt').focus(), 250);
+      root.querySelector('#fb-save').addEventListener('click', () => {
+        put(wpath('occasions', id), { kind: 'budget', planned: +digits(root.querySelector('#fb-amt').value) || 0, deleted: false, ...stamp(!S.occasions.some(o => o.id === id)) });
+        closeSheet(); toast(t('saved'));
+      });
+    },
+  });
 }
 function catRow(c, d) {
   const paid = d.catPaid[c.id] || 0, due = d.catDue[c.id] || 0, pl = +c.planned || 0, over = pl && paid + due > pl;
@@ -977,7 +1015,7 @@ const occName = p => {
 // Every live occasion, in order: wedding functions (ritual order), then own occasions by date.
 function occList() {
   const { fns } = tderive();
-  const own = S.occasions.filter(o => !o.deleted && !S.functions.some(f => f.id === o.id)).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
+  const own = S.occasions.filter(o => !o.deleted && o.kind !== 'budget' && !S.functions.some(f => f.id === o.id)).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
   return [...fns.map(f => ({ key: 'fn:' + f.id, name: fnName(f), date: f.date || '', icon: f.icon || 'star' })),
     ...own.map(o => ({ key: 'oc:' + o.id, name: o.name, date: o.date || '', icon: 'calendar-star', own: o }))];
 }
@@ -995,12 +1033,13 @@ function occasionsHTML(d) {
   const cards = [...list, ...legacy, ...(by[''] ? [{ key: '', name: t('noOccasion'), date: '', icon: 'dots-three-circle' }] : [])];
   if (!cards.length) return `<div class="card empty">${t('noOccYet')}</div>${canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : ''}`;
   return cards.map(o => {
-    const ps = by[o.key] || [], tot = ps.reduce((s, p) => s + (+p.amount || 0), 0);
+    const ps = by[o.key] || [], tot = ps.reduce((s, p) => s + (+p.amount || 0), 0), pl = o.key.startsWith('fn:') ? fnPlan(o.key.slice(3)) : 0;
     return `<button class="vcard occ-card" data-act="occ-open" data-k="${esc(o.key)}">
       <div class="top-l"><span class="ic-c"><i class="ph ph-${o.icon}"></i></span>
         <div style="flex:1;min-width:0"><div style="font-weight:700">${esc(o.name)}</div>
           <div class="small muted">${[o.date ? fmtD(o.date, { day: 'numeric', month: 'short' }) : '', t('payN', ps.length)].filter(Boolean).join(' · ')}</div></div>
-        <div style="text-align:right"><div style="font-weight:800;font-size:1.1rem">${inr(tot)}</div><div class="small muted">${words(tot)}</div></div></div>
+        <div style="text-align:right"><div style="font-weight:800;font-size:1.1rem">${inr(tot)}</div><div class="small muted">${pl ? `${t('budget')} ${inr(pl)}` : words(tot)}</div></div></div>
+      ${pl ? budgetBar(tot, 0, pl).replace('class="bar', 'class="bar thin') : ''}
     </button>`;
   }).join('') + (canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : '');
 }
@@ -1018,7 +1057,10 @@ function occDetail(key) {
         : o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
         ${o?.date ? `<div class="muted small" style="margin:-8px 0 12px">${fmtD(o.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}
         <div class="stats">
-          <div class="stat full"><div class="lb">${t('totalPaid')} · ${t('payN', ps.length)}</div><div class="v">${inr(tot)}</div><div class="w">${words(tot)}</div></div>
+          <div class="stat full"><div class="lb">${t('totalPaid')} · ${t('payN', ps.length)}</div><div class="v">${inr(tot)}</div><div class="w">${words(tot)}</div>
+            ${key.startsWith('fn:') ? (() => { const pl = fnPlan(key.slice(3)); return pl
+              ? `${budgetBar(tot, 0, pl)}<div style="display:flex;justify-content:space-between;margin-top:6px" class="small"><span class="muted">${t('budget')} ${inr(pl)}</span><b style="color:${tot > pl ? 'var(--red)' : 'var(--green)'}">${tot > pl ? t('overBy', inr(tot - pl)) : t('leftAmt', inr(pl - tot))}</b>${canEdit() ? ` <button class="link" data-act="fn-budget" data-id="${key.slice(3)}">${t('changeReceipt')}</button>` : ''}</div>`
+              : canEdit() ? `<button class="link" style="margin-top:8px" data-act="fn-budget" data-id="${key.slice(3)}"><i class="ph ph-plus"></i> ${t('setFnBudget')}</button>` : ''; })() : ''}</div>
         </div>
         ${canEdit() ? `<button class="big-btn primary" style="width:100%;min-height:72px;flex-direction:row;gap:10px;margin-bottom:6px" data-act="add-pay" data-occ="${esc(key)}"><i class="ph ph-hand-coins"></i>${t('actPaid')}</button>` : ''}
         ${cats.length > 1 ? `<div class="sec-h"><h2>${t('byCategory')}</h2></div><div class="list">${cats.map(([c, a]) => {
@@ -1483,6 +1525,8 @@ const ACT = {
   focc(el) { S.occ = el.dataset.id; render(); },
   'add-pay'(el) { paymentSheet(null, undefined, el.dataset.occ); },
   'occ-open'(el) { occDetail(el.dataset.k); },
+  'budget-by'(el) { S.budgetBy = el.dataset.v; render(); },
+  'fn-budget'(el) { fnBudgetSheet(el.dataset.id); },
   'occ-new'() { occSheet(null); },
   'occ-edit'(el) { const o = S.occasions.find(x => x.id === el.dataset.id); if (o) occSheet(o); },
   'add-vendor'() { vendorSheet(null); },
@@ -1628,7 +1672,7 @@ function openWedding(wid) {
 
 let migrating = false;
 function migrateOccasions() {
-  const todo = S.occasions.filter(o => !o.deleted && !S.functions.some(f => f.id === o.id));
+  const todo = S.occasions.filter(o => !o.deleted && o.kind !== 'budget' && !S.functions.some(f => f.id === o.id));
   if (!canEdit() || migrating || !todo.length) return;
   migrating = true;
   const ops = [];

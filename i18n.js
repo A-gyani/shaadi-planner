@@ -192,6 +192,9 @@ export const STR = {
     nextJobs: 'Next jobs', allJobsDone: 'All jobs are done.',
     fnCount: n => n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n > 0 ? `in ${n} days` : 'Done',
     noDateShort: 'Date not set',
+    budgetByFn: 'By function', fnBudgetHint: 'Tap a function to set how much you plan to spend on it.',
+    fnPlanTotal: 'Planned across functions', notAssigned: x => `${x} not assigned`,
+    fnBudgetTitle: f => `Budget for ${f}`, setFnBudget: 'Set a budget for this function',
     openAll: 'Open all', closeAll: 'Close all',
 
     // occasion screen
@@ -434,6 +437,9 @@ export const STR = {
     nextJobs: 'आगे के काम', allJobsDone: 'सारे काम हो गए।',
     fnCount: n => n === 0 ? 'आज' : n === 1 ? 'कल' : n > 0 ? `${n} दिन बाद` : 'हो गई',
     noDateShort: 'तारीख़ तय नहीं',
+    budgetByFn: 'रस्म के हिसाब से', fnBudgetHint: 'किसी रस्म पर दबाकर तय करें कि उस पर कितना खर्च करना है।',
+    fnPlanTotal: 'सभी रस्मों का तय बजट', notAssigned: x => `${x} किसी रस्म में नहीं`,
+    fnBudgetTitle: f => `${f} का बजट`, setFnBudget: 'इस रस्म का बजट तय करें',
     openAll: 'सब खोलें', closeAll: 'सब बंद करें',
 
     tabOcc: 'रस्में', payN: n => `${n} भुगतान`, occLine: 'रस्म',
