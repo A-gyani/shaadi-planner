@@ -1,0 +1,14 @@
+{
+  "name": "Shaadi Planner · शादी प्लानर",
+  "short_name": "Shaadi",
+  "description": "Wedding money, tasks and guests — for the whole family",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbf6ee",
+  "theme_color": "#8c1c3a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

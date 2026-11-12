@@ -1,0 +1,87 @@
+rules_version = '2';
+// Shaadi Planner security rules. Paste into Firebase console → Firestore → Rules → Publish.
+//
+// Shape of the data:
+//   users/{uid}                      your own list of weddings + language (only you)
+//   invites/{code}                   invite links (readable by anyone holding the code)
+//   weddings/{wid}                   name, date, total budget
+//   weddings/{wid}/members/{uid}     role: owner | editor | viewer, money: can a viewer see money, phone
+//   weddings/{wid}/private/pin       the family PIN (owner only)
+//   weddings/{wid}/payments|vendors|categories/{id}   (money: owner, editors, viewers with money)
+//   weddings/{wid}/functions|tasks|guests/{id}        (to-do list, guest list: every member)
+//   weddings/{wid}/shagun/{id}                        (shagun / lena-dena register: like money)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function memberPath(wid) { return /databases/$(database)/documents/weddings/$(wid)/members/$(request.auth.uid); }
+    function isMember(wid) { return signedIn() && exists(memberPath(wid)); }
+    function myRole(wid) { return get(memberPath(wid)).data.role; }
+    function isOwner(wid) { return isMember(wid) && myRole(wid) == 'owner'; }
+    function canEdit(wid) { return isMember(wid) && myRole(wid) in ['owner', 'editor']; }
+    function seesMoney(wid) {
+      return isMember(wid) && (myRole(wid) in ['owner', 'editor'] || get(memberPath(wid)).data.get('money', false) == true);
+    }
+    // Login is phone + family PIN: each phone is an email/password account <phone>@phone.shaadi-planner.app
+    // (domain must match PHONE_DOMAIN in store.js). A member's phone must be their own login phone.
+    function myPhoneOk(m) { return m.phone + '@phone.shaadi-planner.app' == request.auth.token.email; }
+    // A new member must quote a live invite for this wedding, with exactly the role it grants,
+    // and know the family PIN (kept in weddings/{wid}/private/pin, which only the owner can read).
+    function inviteOk(wid, m) {
+      let inv = get(/databases/$(database)/documents/invites/$(m.invite)).data;
+      return inv.weddingId == wid && inv.role == m.role && inv.money == m.money && inv.expiresAt > request.time
+        && m.pin == get(/databases/$(database)/documents/weddings/$(wid)/private/pin).data.pin;
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.role in ['editor', 'viewer']
+        && isOwner(request.resource.data.weddingId);
+      allow delete: if signedIn() && isOwner(resource.data.weddingId);
+    }
+
+    match /weddings/{wid} {
+      allow read: if isMember(wid);
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      // owner can change anything; editors may only change the total budget
+      allow update: if request.resource.data.createdBy == resource.data.createdBy && (
+        isOwner(wid) ||
+        (canEdit(wid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['budget', 'updatedAt'])));
+
+      match /members/{uid} {
+        allow read: if isMember(wid) || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.auth.uid == uid && myPhoneOk(request.resource.data) && (
+          // the creator makes themselves owner, in the same batch that creates the wedding
+          (request.resource.data.role == 'owner'
+            && getAfter(/databases/$(database)/documents/weddings/$(wid)).data.createdBy == request.auth.uid)
+          || inviteOk(wid, request.resource.data));
+        allow update: if (isOwner(wid) && request.auth.uid != uid && request.resource.data.role in ['editor', 'viewer'])
+          || (signedIn() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));
+        allow delete: if isOwner(wid) && request.auth.uid != uid;
+      }
+
+      // family PIN: created with the wedding; only the owner can see or change it
+      match /private/{d} {
+        allow read, update: if isOwner(wid);
+        allow create: if isOwner(wid) || (signedIn()
+          && getAfter(/databases/$(database)/documents/weddings/$(wid)).data.createdBy == request.auth.uid);
+      }
+
+      match /payments/{id}   { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
+      match /vendors/{id}    { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
+      match /categories/{id} { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
+      // to-do list: every member can see it, even without money access
+      match /functions/{id}  { allow read: if isMember(wid); allow write: if canEdit(wid); }
+      match /tasks/{id}      { allow read: if isMember(wid); allow write: if canEdit(wid); }
+      // guest list: every member; shagun register is money, so same visibility as payments
+      match /guests/{id}     { allow read: if isMember(wid); allow write: if canEdit(wid); }
+      match /shagun/{id}     { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
+    }
+  }
+}
