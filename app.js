@@ -51,7 +51,14 @@ const seesMoney = () => canEdit() || !!S.me?.money;
 const myWeddings = () => Object.entries(S.userDoc?.weddings || {}).filter(([, w]) => w && !w.gone).map(([id, w]) => ({ id, ...w }));
 const catName = c => c ? (c.name || (S.lang === 'hi' ? c.hi || c.en : c.en || c.hi) || '') : '';
 
-const fnPlan = id => +(S.occasions.find(o => o.id === id && o.kind === 'budget')?.planned) || 0;
+// Budget grid: each function's plan is split by category, stored in its money-only budget doc
+// (weddings/{wid}/occasions/{fnId}: kind 'budget', parts {categoryId: ₹}). An older single number counts as "other".
+const fnBudgetDoc = id => S.occasions.find(o => o.id === id && o.kind === 'budget');
+const fnParts = id => { const b = fnBudgetDoc(id); return b?.parts ? b.parts : (+b?.planned ? { other: +b.planned } : {}); };
+const fnPlan = id => Object.values(fnParts(id)).reduce((s, v) => s + (+v || 0), 0);
+// a category's total plan = its amount in every live function + the part not tied to any function (category.planned)
+const catFnPlan = cid => S.functions.filter(f => !f.deleted).reduce((s, f) => s + (+fnParts(f.id)[cid] || 0), 0);
+const catPlanAll = c => (+c.planned || 0) + catFnPlan(c.id);
 function derive() {
   const P = S.payments.filter(p => !p.deleted), V = S.vendors.filter(v => !v.deleted);
   const vById = Object.fromEntries(S.vendors.map(v => [v.id, v]));
@@ -72,9 +79,9 @@ function derive() {
     if (bal > 0) { due += bal; const c = v.categoryId || 'other'; catDue[c] = (catDue[c] || 0) + bal; }
   });
   const dues = V.filter(v => vs[v.id].bal > 0).sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
-  const planned = cats.reduce((s, c) => s + (+c.planned || 0), 0);
   const fnPlanned = S.functions.filter(f => !f.deleted).reduce((s, f) => s + fnPlan(f.id), 0);
-  const budget = +S.wedding?.budget || Math.max(planned, fnPlanned);
+  const planned = cats.reduce((s, c) => s + (+c.planned || 0), 0) + fnPlanned;      // everything planned, counted once
+  const budget = +S.wedding?.budget || planned;
   return { P, V, vById, cats, cById, catOf, vs, catPaid, catDue, paid, due, dues, planned, fnPlanned, budget };
 }
 
@@ -429,23 +436,41 @@ function fnBudgetHTML(d) {
 }
 function fnBudgetSheet(id) {
   const f = S.functions.find(x => x.id === id); if (!f) return;
-  const pl = fnPlan(id);
+  const d = derive(), parts = { ...fnParts(id) }, spent = {};
+  (occTotals(d)['fn:' + id] || []).forEach(p => { const c = d.catOf(p); spent[c] = (spent[c] || 0) + (+p.amount || 0); });
+  const used = d.cats.filter(c => +parts[c.id] || spent[c.id]), rest = d.cats.filter(c => !(+parts[c.id] || spent[c.id]));
+  const row = c => `<div class="row brow"><span class="ic gold"><i class="ph ph-${c.icon || 'tag'}"></i></span>
+      <span class="mid"><div class="t">${esc(catName(c))}</div><div class="s">${spent[c.id] ? `${t('legendPaid')} ${inr(spent[c.id])}` : '&nbsp;'}</div></span>
+      <input class="inp bamt" data-cat="${c.id}" inputmode="numeric" autocomplete="off" placeholder="₹ 0" value="${+parts[c.id] ? Math.round(parts[c.id]) : ''}"></div>`;
   openSheet({
     html: () => `${sheetHead(t('fnBudgetTitle', fnName(f)))}
-      <div class="field"><label for="fb-amt">${t('plannedAmt')}</label><input class="inp amt-inp" id="fb-amt" inputmode="numeric" placeholder="0" value="${pl ? Math.round(pl) : ''}"><div class="amt-words" id="fb-words"></div></div>
+      <div class="stat full" style="margin-bottom:12px"><div class="lb">${t('fnBudgetTotal')}</div><div class="v" id="fb-total">${inr(fnPlan(id))}</div><div class="w" id="fb-words">${words(fnPlan(id))}</div></div>
+      <p class="muted small" style="margin:0 2px 10px">${t('fnPartsHint')}</p>
+      <div class="list">${(used.length ? used : d.cats.slice(0, 4)).map(row).join('')}</div>
+      ${rest.length && used.length ? `<details class="more"><summary><i class="ph ph-plus"></i> ${t('moreParts')}</summary><div class="list">${rest.map(row).join('')}</div></details>` : ''}
+      ${!used.length && d.cats.length > 4 ? `<details class="more"><summary><i class="ph ph-plus"></i> ${t('moreParts')}</summary><div class="list">${d.cats.slice(4).map(row).join('')}</div></details>` : ''}
       <button class="btn gold block" id="fb-save"><i class="ph ph-check"></i> ${t('save')}</button>`,
     bind: root => {
-      bindAmount(root, '#fb-amt', '#fb-words');
-      setTimeout(() => root.querySelector('#fb-amt').focus(), 250);
+      const total = () => [...root.querySelectorAll('.bamt')].reduce((s, i) => s + (+digits(i.value) || 0), 0);
+      root.querySelectorAll('.bamt').forEach(i => i.addEventListener('input', () => {
+        const c = digits(i.value); if (c !== i.value) i.value = c;
+        const tt = total(); root.querySelector('#fb-total').textContent = inr(tt); root.querySelector('#fb-words').textContent = words(tt);
+      }));
       root.querySelector('#fb-save').addEventListener('click', () => {
-        put(wpath('occasions', id), { kind: 'budget', planned: +digits(root.querySelector('#fb-amt').value) || 0, deleted: false, ...stamp(!S.occasions.some(o => o.id === id)) });
+        const out = {};
+        root.querySelectorAll('.bamt').forEach(i => { const v = +digits(i.value) || 0; if (v) out[i.dataset.cat] = v; });
+        // categories not shown in this sheet (e.g. deleted ones) keep their amounts
+        Object.entries(parts).forEach(([k, v]) => { if (!root.querySelector(`.bamt[data-cat="${k}"]`) && +v) out[k] = v; });
+        const tot = Object.values(out).reduce((s, v) => s + v, 0);
+        // set the whole map (not merged), so cleared boxes really clear
+        store.set(wpath('occasions', id), { kind: 'budget', parts: out, planned: tot, deleted: false, ...stamp(!fnBudgetDoc(id)) }, false).catch(fail);
         closeSheet(); toast(t('saved'));
       });
     },
   });
 }
 function catRow(c, d) {
-  const paid = d.catPaid[c.id] || 0, due = d.catDue[c.id] || 0, pl = +c.planned || 0, over = pl && paid + due > pl;
+  const paid = d.catPaid[c.id] || 0, due = d.catDue[c.id] || 0, pl = catPlanAll(c), over = pl && paid + due > pl;
   return `<button class="row" data-act="cat" data-id="${c.id}" style="flex-wrap:wrap;row-gap:0">
     <span class="ic gold"><i class="ph ph-${c.icon || 'tag'}"></i></span>
     <span class="mid"><div class="t">${esc(catName(c))}</div><div class="s">${inr(paid)}${due ? ` + ${inr(due)} ${t('legendDue')}` : ''}</div></span>
@@ -1052,7 +1077,9 @@ function occDetail(key) {
       const d = derive(), ps = (occTotals(d)[key] || []).sort(byDateDesc), o = occList().find(x => x.key === key);
       const tot = ps.reduce((s, p) => s + (+p.amount || 0), 0), byCat = {};
       ps.forEach(p => { const c = d.catOf(p); byCat[c] = (byCat[c] || 0) + (+p.amount || 0); });
-      const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+      const parts = key.startsWith('fn:') ? fnParts(key.slice(3)) : {};
+      const cats = [...new Set([...Object.keys(parts).filter(c => +parts[c]), ...Object.keys(byCat)])]
+        .map(c => [c, byCat[c] || 0, +parts[c] || 0]).sort((a, b) => (b[2] || b[1]) - (a[2] || a[1]));
       return `${sheetHead(occLabel(key), canEdit() && key.startsWith('fn:') ? `<button class="x" data-act="fn" data-id="${key.slice(3)}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>`
         : o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
         ${o?.date ? `<div class="muted small" style="margin:-8px 0 12px">${fmtD(o.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}
@@ -1063,8 +1090,12 @@ function occDetail(key) {
               : canEdit() ? `<button class="link" style="margin-top:8px" data-act="fn-budget" data-id="${key.slice(3)}"><i class="ph ph-plus"></i> ${t('setFnBudget')}</button>` : ''; })() : ''}</div>
         </div>
         ${canEdit() ? `<button class="big-btn primary" style="width:100%;min-height:72px;flex-direction:row;gap:10px;margin-bottom:6px" data-act="add-pay" data-occ="${esc(key)}"><i class="ph ph-hand-coins"></i>${t('actPaid')}</button>` : ''}
-        ${cats.length > 1 ? `<div class="sec-h"><h2>${t('byCategory')}</h2></div><div class="list">${cats.map(([c, a]) => {
-          const cc = d.cById[c]; return `<div class="row"><span class="ic gold"><i class="ph ph-${cc?.icon || 'tag'}"></i></span><span class="mid"><div class="t">${esc(catName(cc) || t('noGroup'))}</div></span><span class="amt">${inr(a)}</span></div>`; }).join('')}</div>` : ''}
+        ${cats.length && (cats.length > 1 || cats[0][2]) ? `<div class="sec-h"><h2>${t('byCategory')}</h2>${canEdit() && key.startsWith('fn:') ? `<button class="link" data-act="fn-budget" data-id="${key.slice(3)}">${t('editParts')}</button>` : ''}</div><div class="list">${cats.map(([c, a, pl]) => {
+          const cc = d.cById[c], over = pl && a > pl;
+          return `<div class="row" style="flex-wrap:wrap;row-gap:0"><span class="ic gold"><i class="ph ph-${cc?.icon || 'tag'}"></i></span>
+            <span class="mid"><div class="t">${esc(catName(cc) || t('noGroup'))}</div><div class="s">${pl ? t('ofPlan', inr(pl)) : t('noPlanShort')}</div></span>
+            <span class="amt" style="${over ? 'color:var(--red)' : ''}">${inr(a)}<div class="s">${pl ? (over ? t('overBy', inr(a - pl)) : t('leftAmt', inr(pl - a))) : ''}</div></span>
+            ${pl ? `<div style="flex-basis:100%;padding-left:52px">${budgetBar(a, 0, pl).replace('class="bar', 'class="bar thin')}</div>` : ''}</div>`; }).join('')}</div>` : ''}
         <div class="sec-h"><h2>${t('tabPayments')}</h2></div>
         ${ps.length ? `<div class="list">${ps.map(p => payRow(p, d)).join('')}</div>` : `<div class="card empty">${t('noOccPays')}</div>`}`;
     },
@@ -1349,7 +1380,9 @@ function categorySheet(c) {
   openSheet({
     html: () => `${sheetHead(c ? t('editCategory') : t('addCategory').replace('+ ', ''))}
       <div class="field"><label for="c-name">${t('categoryName')}</label><input class="inp" id="c-name" value="${esc(catName(c))}"><div class="err hidden" id="e-cname"></div></div>
-      <div class="field"><label for="c-amt">${t('plannedAmt')}</label><input class="inp amt-inp" id="c-amt" inputmode="numeric" placeholder="0" value="${c?.planned ? Math.round(c.planned) : ''}"><div class="amt-words" id="c-words"></div></div>
+      ${c && catFnPlan(c.id) ? `<div class="field"><label>${t('catSplit')}</label><div class="list" style="margin:0">${S.functions.filter(f => !f.deleted && +fnParts(f.id)[c.id]).map(f =>
+        `<div class="row"><span class="mid"><div class="t">${esc(fnName(f))}</div></span><span class="amt">${inr(fnParts(f.id)[c.id])}</span></div>`).join('')}</div></div>` : ''}
+      <div class="field"><label for="c-amt">${c ? t('catGeneralAmt') : t('plannedAmt')}</label><input class="inp amt-inp" id="c-amt" inputmode="numeric" placeholder="0" value="${c?.planned ? Math.round(c.planned) : ''}"><div class="amt-words" id="c-words"></div></div>
       <div class="btns">${c && !isDefault ? `<button class="btn danger" id="c-del"><i class="ph ph-trash"></i> ${t('delete')}</button>` : ''}
         <button class="btn gold" id="c-save"><i class="ph ph-check"></i> ${t('save')}</button></div>`,
     bind: root => {
