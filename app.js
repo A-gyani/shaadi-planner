@@ -39,7 +39,7 @@ const S = {
   user: null, userDoc: {}, wid: null, wedding: null, members: [], me: null,
   payments: [], vendors: [], categories: [], functions: [], tasks: [], pend: {},
   view: 'home', moneyTab: 'occasions', cat: 'all', occ: 'all', q: '', occasions: [],
-  taskFilter: 'all', showDone: {}, setupSel: null,
+  taskFilter: 'all', showDone: {}, setupSel: null, open: new Set((() => { try { return JSON.parse(LS.get('sp.open', '[]')); } catch (e) { return []; } })()),
   guests: [], shagun: [], guestTab: 'list', gFilter: 'all', gq: '', shDir: 'all', shq: '',
 };
 let store, unsubs = [], moneyUnsubs = [];
@@ -474,22 +474,28 @@ function tasksHTML() {
   const list = S.taskFilter === 'mine' ? T.filter(mine) : T;
   if (S.taskFilter === 'mine' && !list.length) return seg + `<div class="card empty">${t('noMine')}</div>`;
   const groups = [...fns, ...(list.some(x => !x.fnId) || !S.functions.length ? [{ id: '' }] : [])];
-  return seg + groups.map(f => {
+  const mineView = S.taskFilter === 'mine', allOpen = groups.every(f => S.open.has(f.id || '_'));
+  const foldAll = mineView ? '' : `<div class="fold-all"><button class="link" data-act="fold-all"><i class="ph ph-caret-${allOpen ? 'up' : 'down'}"></i> ${allOpen ? t('closeAll') : t('openAll')}</button></div>`;
+  return seg + foldAll + groups.map(f => {
     const all = list.filter(x => (x.fnId || '') === f.id).sort(byOrder);
     if (S.taskFilter === 'mine' && !all.length) return '';
     const open = all.filter(x => !x.done), done = all.filter(x => x.done), showD = !!S.showDone[f.id || '_'];
     const doneN = T.filter(x => (x.fnId || '') === f.id && x.done).length, totalN = T.filter(x => (x.fnId || '') === f.id).length;
+    const key = f.id || '_', isOpen = mineView || S.open.has(key);     // folded unless opened; "My tasks" is short, so always open
     return `<div class="list">
-      <button class="fn-h" data-act="${f.id && canEdit() ? 'fn' : 'noop'}" data-id="${f.id}">
-        <span class="ic-c"><i class="ph ph-${f.icon || 'list-checks'}"></i></span>
-        <span class="mid"><div class="t">${esc(fnName(f.id ? f : null))}</div>
-          <div class="s">${f.id ? `${f.date ? fmtD(f.date, { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' : ''}${fnCountdown(f)}` : ''}${totalN ? `${f.id ? ' · ' : ''}${t('progress', doneN, totalN)}` : ''}</div>
-          ${totalN ? `<div class="prog"><span style="width:${doneN / totalN * 100}%"></span></div>` : ''}</span>
-        ${f.id && canEdit() ? '<i class="ph ph-pencil-simple muted"></i>' : ''}</button>
-      ${open.map(x => taskRow(x, fnById, false)).join('') || (done.length ? '' : `<div class="empty small" style="padding:14px">${t('noTasksFn')}</div>`)}
-      ${done.length ? `<button class="add-row muted" data-act="show-done" data-id="${f.id || '_'}"><i class="ph ph-caret-${showD ? 'up' : 'down'}"></i> ${t('doneCount', done.length)}</button>` : ''}
+      <div class="fn-h">
+        <button class="fn-tog" data-act="${mineView ? 'noop' : 'fold'}" data-id="${key}" aria-expanded="${isOpen}">
+          <span class="ic-c"><i class="ph ph-${f.icon || 'list-checks'}"></i></span>
+          <span class="mid"><div class="t">${esc(fnName(f.id ? f : null))}</div>
+            <div class="s">${f.id ? `${f.date ? fmtD(f.date, { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' : ''}${fnCountdown(f)}` : ''}${totalN ? `${f.id ? ' · ' : ''}${t('progress', doneN, totalN)}` : ''}</div>
+            ${totalN ? `<div class="prog"><span style="width:${doneN / totalN * 100}%"></span></div>` : ''}</span>
+          ${mineView ? '' : `<i class="ph ph-caret-${isOpen ? 'up' : 'down'} fold-ic"></i>`}</button>
+        ${f.id && canEdit() && isOpen ? `<button class="x" data-act="fn" data-id="${f.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : ''}
+      </div>
+      ${isOpen ? `${open.map(x => taskRow(x, fnById, false)).join('') || (done.length ? '' : `<div class="empty small" style="padding:14px">${t('noTasksFn')}</div>`)}
+      ${done.length ? `<button class="add-row muted" data-act="show-done" data-id="${key}"><i class="ph ph-caret-${showD ? 'up' : 'down'}"></i> ${t('doneCount', done.length)}</button>` : ''}
       ${showD ? done.map(x => taskRow(x, fnById, false)).join('') : ''}
-      ${canEdit() ? `<button class="add-row" data-act="add-task" data-fn="${f.id}">${t('addTaskHere')}</button>` : ''}
+      ${canEdit() ? `<button class="add-row" data-act="add-task" data-fn="${f.id}">${t('addTaskHere')}</button>` : ''}` : ''}
     </div>`;
   }).join('') + (canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : '');
 }
@@ -960,18 +966,18 @@ function bindAmount(root, inputSel, wordsSel) {
 const showErr = (root, id, msg) => { const e = root.querySelector('#' + id); e.textContent = msg; e.classList.remove('hidden'); };
 
 /* ---------- payment ---------- */
-// A payment's occasion is a wedding function (fnId) or any other occasion typed once (occasion), e.g. Diwali gifts.
-// Own occasions (Diwali gifts, Bhaat…) live in weddings/{wid}/occasions and payments point at them by occId.
-const occKey = p => p.fnId ? 'fn:' + p.fnId : p.occId ? 'oc:' + p.occId : p.occasion ? 'o:' + p.occasion : '';
+// A payment belongs to a function (fnId): the wedding rasms and any other the family adds (Bhaat, Diwali gifts…).
+// occId / occasion are older forms; migrateOccasions() turns them into functions.
+const occKey = p => p.fnId ? 'fn:' + p.fnId : p.occId ? (S.functions.some(f => f.id === p.occId) ? 'fn:' + p.occId : 'oc:' + p.occId) : p.occasion ? 'o:' + p.occasion : '';
 const occName = p => {
   if (p.fnId) { const f = S.functions.find(x => x.id === p.fnId); if (f) return fnName(f); }
-  if (p.occId) { const o = S.occasions.find(x => x.id === p.occId); if (o) return o.name; }
+  if (p.occId) { const f = S.functions.find(x => x.id === p.occId); if (f) return fnName(f); const o = S.occasions.find(x => x.id === p.occId); if (o) return o.name; }
   return p.occasion || '';
 };
 // Every live occasion, in order: wedding functions (ritual order), then own occasions by date.
 function occList() {
   const { fns } = tderive();
-  const own = S.occasions.filter(o => !o.deleted).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
+  const own = S.occasions.filter(o => !o.deleted && !S.functions.some(f => f.id === o.id)).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
   return [...fns.map(f => ({ key: 'fn:' + f.id, name: fnName(f), date: f.date || '', icon: f.icon || 'star' })),
     ...own.map(o => ({ key: 'oc:' + o.id, name: o.name, date: o.date || '', icon: 'calendar-star', own: o }))];
 }
@@ -987,7 +993,7 @@ function occasionsHTML(d) {
   const by = occTotals(d), list = occList();
   const legacy = Object.keys(by).filter(k => k.startsWith('o:')).map(k => ({ key: k, name: k.slice(2), date: '', icon: 'calendar-star' }));
   const cards = [...list, ...legacy, ...(by[''] ? [{ key: '', name: t('noOccasion'), date: '', icon: 'dots-three-circle' }] : [])];
-  if (!cards.length) return `<div class="card empty">${t('noOccYet')}</div>${canEdit() ? `<button class="btn ghost block" data-act="occ-new">${t('newOccasion')}</button>` : ''}`;
+  if (!cards.length) return `<div class="card empty">${t('noOccYet')}</div>${canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : ''}`;
   return cards.map(o => {
     const ps = by[o.key] || [], tot = ps.reduce((s, p) => s + (+p.amount || 0), 0);
     return `<button class="vcard occ-card" data-act="occ-open" data-k="${esc(o.key)}">
@@ -996,7 +1002,7 @@ function occasionsHTML(d) {
           <div class="small muted">${[o.date ? fmtD(o.date, { day: 'numeric', month: 'short' }) : '', t('payN', ps.length)].filter(Boolean).join(' · ')}</div></div>
         <div style="text-align:right"><div style="font-weight:800;font-size:1.1rem">${inr(tot)}</div><div class="small muted">${words(tot)}</div></div></div>
     </button>`;
-  }).join('') + (canEdit() ? `<button class="btn ghost block" data-act="occ-new">${t('newOccasion')}</button>` : '');
+  }).join('') + (canEdit() ? `<button class="btn ghost block" data-act="add-fn">${t('addFn')}</button>` : '');
 }
 
 // One occasion's screen (live): total, split by category, its payments, and "paid money" pre-set to it.
@@ -1008,7 +1014,8 @@ function occDetail(key) {
       const tot = ps.reduce((s, p) => s + (+p.amount || 0), 0), byCat = {};
       ps.forEach(p => { const c = d.catOf(p); byCat[c] = (byCat[c] || 0) + (+p.amount || 0); });
       const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-      return `${sheetHead(occLabel(key), o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
+      return `${sheetHead(occLabel(key), canEdit() && key.startsWith('fn:') ? `<button class="x" data-act="fn" data-id="${key.slice(3)}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>`
+        : o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
         ${o?.date ? `<div class="muted small" style="margin:-8px 0 12px">${fmtD(o.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}
         <div class="stats">
           <div class="stat full"><div class="lb">${t('totalPaid')} · ${t('payN', ps.length)}</div><div class="v">${inr(tot)}</div><div class="w">${words(tot)}</div></div>
@@ -1193,7 +1200,7 @@ function paymentSheet(p, presetVendor, presetOcc) {
         if (typedOcc) {
           const same = occList().find(o => norm(o.name) === norm(typedOcc));
           if (same) occ = same.key;
-          else { const oid = newId(); ops.push({ path: wpath('occasions', oid), data: { name: typedOcc, date: '', ...stamp(true) } }); occ = 'oc:' + oid; }
+          else { const fid = newId(); ops.push(...fnOps([{ id: fid, name: typedOcc, icon: 'star', date: '' }], 50 + S.functions.length)); occ = 'fn:' + fid; }
         }
         const id = p ? p.id : newId();
         const data = {
@@ -1511,6 +1518,12 @@ const ACT = {
   tfilter(el) { S.taskFilter = el.dataset.v; render(); },
   'show-done'(el) { S.showDone[el.dataset.id] = !S.showDone[el.dataset.id]; render(); },
   fn(el) { const f = S.functions.find(x => x.id === el.dataset.id); if (f) fnSheet(f); },
+  fold(el) { const k = el.dataset.id; S.open.has(k) ? S.open.delete(k) : S.open.add(k); LS.set('sp.open', JSON.stringify([...S.open])); render(); },
+  'fold-all'() {
+    const keys = [...document.querySelectorAll('[data-act=fold]')].map(b => b.dataset.id);
+    S.open = keys.every(k => S.open.has(k)) ? new Set() : new Set(keys);
+    LS.set('sp.open', JSON.stringify([...S.open])); render();
+  },
   'add-fn'() { fnSheet(null); },
   'setup-pick'(el) { const id = el.dataset.id, a = S.setupSel || []; S.setupSel = a.includes(id) ? a.filter(x => x !== id) : [...a, id]; render(); },
   'setup-go': setupGo,
@@ -1613,11 +1626,24 @@ function openWedding(wid) {
     e => { console.warn(col, e); S[col] = []; render(); })));
 }
 
+let migrating = false;
+function migrateOccasions() {
+  const todo = S.occasions.filter(o => !o.deleted && !S.functions.some(f => f.id === o.id));
+  if (!canEdit() || migrating || !todo.length) return;
+  migrating = true;
+  const ops = [];
+  todo.forEach((o, i) => {
+    ops.push({ path: wpath('functions', o.id), data: { en: '', hi: '', name: o.name, icon: 'star', date: o.date || '', order: 60 + S.functions.length + i, ...stamp(true) } });
+    ops.push({ path: wpath('occasions', o.id), data: { deleted: true, movedToFunctions: true, ...stamp(false) } });
+    S.payments.filter(p => p.occId === o.id).forEach(p => ops.push({ path: wpath('payments', p.id), data: { fnId: o.id, occId: '', ...stamp(false) } }));
+  });
+  store.batch(ops).catch(fail).finally(() => { migrating = false; });
+}
 function syncMoneyListeners() {
   const want = seesMoney();
   if (want && !moneyUnsubs.length) {
     ['payments', 'vendors', 'categories', 'shagun', 'occasions'].forEach(col => moneyUnsubs.push(store.listenCol(`weddings/${S.wid}/${col}`,
-      (docs, pend) => { S[col] = docs; S.pend[col] = pend; render(); },
+      (docs, pend) => { S[col] = docs; S.pend[col] = pend; render(); if (col === 'occasions' || col === 'payments') setTimeout(migrateOccasions, 1500); },
       e => { console.warn(col, e); S[col] = []; render(); })));
   } else if (!want && moneyUnsubs.length) {
     moneyUnsubs.forEach(u => u()); moneyUnsubs = [];
