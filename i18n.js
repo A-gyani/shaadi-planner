@@ -251,7 +251,7 @@ export const STR = {
   },
 
   hi: {
-    appName: 'शादी प्लानर',
+    appName: 'Shaadi Planner',
     tagline: 'शादी का खर्च, काम और मेहमान — पूरे परिवार के लिए',
     chooseLang: 'भाषा चुनें',
     login: 'आगे बढ़ें',
@@ -394,7 +394,7 @@ export const STR = {
     inviteReady: 'लिंक तैयार है (14 दिन चलेगा, जिसे भी भेजें):',
     copy: 'कॉपी', copied: 'कॉपी हो गया',
     shareWA: 'WhatsApp पर भेजें',
-    inviteMsg: (w, l) => `शादी प्लानर पर "${w}" से जुड़ें: ${l}`,
+    inviteMsg: (w, l) => `Shaadi Planner पर "${w}" से जुड़ें: ${l}`,
     remove: 'हटाएँ',
     removeConfirm: n => `${n} को इस शादी से हटाएँ?`,
     makeEditor: 'बदलने की अनुमति दें', makeViewer: 'सिर्फ़ देखने दें',

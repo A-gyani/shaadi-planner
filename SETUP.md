@@ -1,4 +1,4 @@
-# Shaadi Planner · शादी प्लानर — setup
+# Shaadi Planner — setup
 
 A phone-first web app for tracking wedding money (payments, vendors, budget) with the whole family.
 Hindi/English, works offline, live sync between everyone's phones. Phases 1–3 of 4 done (see "Roadmap").

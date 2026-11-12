@@ -173,7 +173,7 @@ const demoBar = () => S.demo ? `<div class="demo-bar"><i class="ph ph-info"></i>
 
 function screenHTML() {
   switch (S.screen) {
-    case 'lang': return `<div class="screen"><div class="wrap"><div class="brand">${LOGO}<h1>शादी प्लानर</h1><p>Shaadi Planner</p></div>
+    case 'lang': return `<div class="screen"><div class="wrap"><div class="brand">${LOGO}<h1>Shaadi Planner</h1></div>
       <p style="text-align:center;font-weight:700">भाषा चुनें · Choose language</p>
       <div class="lang-big"><button data-act="pick-lang" data-v="hi">हिन्दी</button><button data-act="pick-lang" data-v="en">English</button></div></div></div>`;
     case 'signin': return loginHTML();
