@@ -38,7 +38,7 @@ const S = {
   lang: LS.get('sp.lang'), screen: 'boot', demo: false,
   user: null, userDoc: {}, wid: null, wedding: null, members: [], me: null,
   payments: [], vendors: [], categories: [], functions: [], tasks: [], pend: {},
-  view: 'home', moneyTab: 'payments', cat: 'all', occ: 'all', q: '',
+  view: 'home', moneyTab: 'occasions', cat: 'all', occ: 'all', q: '', occasions: [],
   taskFilter: 'all', showDone: {}, setupSel: null,
   guests: [], shagun: [], guestTab: 'list', gFilter: 'all', gq: '', shDir: 'all', shq: '',
 };
@@ -273,7 +273,7 @@ function fabHTML() {
   if (S.me && canEdit() && S.view === 'guests' && (S.guestTab !== 'shagun' || !seesMoney())) return `<button class="fab" data-act="add-guest"><i class="ph ph-plus"></i> ${t('addGuest')}</button>`;
   if (S.me && canEdit() && S.view === 'tasks' && tderive().fns.length) return `<button class="fab" data-act="add-task"><i class="ph ph-plus"></i> ${t('addTask')}</button>`;
   if (!S.me || !canEdit() || S.view !== 'money') return '';
-  if (S.moneyTab === 'payments') return `<button class="fab" data-act="add-pay"><i class="ph ph-plus"></i> ${t('addPayment')}</button>`;
+  if (S.moneyTab === 'payments' || S.moneyTab === 'occasions') return `<button class="fab" data-act="add-pay"><i class="ph ph-plus"></i> ${t('addPayment')}</button>`;
   if (S.moneyTab === 'vendors') return `<button class="fab" data-act="add-vendor"><i class="ph ph-plus"></i> ${t('addVendor')}</button>`;
   return '';
 }
@@ -340,9 +340,10 @@ function payRow(p, d) {
 
 /* ---------- money ---------- */
 function moneyHTML() {
-  const tabs = [['payments', t('tabPayments')], ['vendors', t('tabVendors')], ['budget', t('tabBudget')]];
+  const tabs = [['occasions', t('tabOcc')], ['payments', t('tabPayments')], ['vendors', t('tabVendors')], ['budget', t('tabBudget')]];
   const seg = `<div class="seg">${tabs.map(([v, lb]) => `<button data-act="money-tab" data-v="${v}" class="${S.moneyTab === v ? 'on' : ''}">${lb}</button>`).join('')}</div>`;
   const d = derive();
+  if (S.moneyTab === 'occasions') return seg + occasionsHTML(d);
   if (S.moneyTab === 'vendors') return seg + vendorsHTML(d);
   if (S.moneyTab === 'budget') return seg + budgetHTML(d);
   const used = d.cats.filter(c => d.catPaid[c.id]);
@@ -960,8 +961,88 @@ const showErr = (root, id, msg) => { const e = root.querySelector('#' + id); e.t
 
 /* ---------- payment ---------- */
 // A payment's occasion is a wedding function (fnId) or any other occasion typed once (occasion), e.g. Diwali gifts.
-const occKey = p => p.fnId ? 'fn:' + p.fnId : p.occasion ? 'o:' + p.occasion : '';
-const occName = p => { if (p.fnId) { const f = S.functions.find(x => x.id === p.fnId); if (f) return fnName(f); } return p.occasion || ''; };
+// Own occasions (Diwali gifts, Bhaat…) live in weddings/{wid}/occasions and payments point at them by occId.
+const occKey = p => p.fnId ? 'fn:' + p.fnId : p.occId ? 'oc:' + p.occId : p.occasion ? 'o:' + p.occasion : '';
+const occName = p => {
+  if (p.fnId) { const f = S.functions.find(x => x.id === p.fnId); if (f) return fnName(f); }
+  if (p.occId) { const o = S.occasions.find(x => x.id === p.occId); if (o) return o.name; }
+  return p.occasion || '';
+};
+// Every live occasion, in order: wedding functions (ritual order), then own occasions by date.
+function occList() {
+  const { fns } = tderive();
+  const own = S.occasions.filter(o => !o.deleted).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.createdAt || 0) - (b.createdAt || 0));
+  return [...fns.map(f => ({ key: 'fn:' + f.id, name: fnName(f), date: f.date || '', icon: f.icon || 'star' })),
+    ...own.map(o => ({ key: 'oc:' + o.id, name: o.name, date: o.date || '', icon: 'calendar-star', own: o }))];
+}
+const occLabel = k => !k ? t('noOccasion') : (occList().find(o => o.key === k)?.name || (k.startsWith('o:') ? k.slice(2) : t('noOccasion')));
+// payments grouped by occasion; payments of a deleted occasion fall under "none in particular"
+function occTotals(d) {
+  const live = new Set(occList().map(o => o.key)), by = {};
+  d.P.forEach(p => { let k = occKey(p); if (k && !live.has(k) && !k.startsWith('o:')) k = ''; (by[k] ||= []).push(p); });
+  return by;
+}
+
+function occasionsHTML(d) {
+  const by = occTotals(d), list = occList();
+  const legacy = Object.keys(by).filter(k => k.startsWith('o:')).map(k => ({ key: k, name: k.slice(2), date: '', icon: 'calendar-star' }));
+  const cards = [...list, ...legacy, ...(by[''] ? [{ key: '', name: t('noOccasion'), date: '', icon: 'dots-three-circle' }] : [])];
+  if (!cards.length) return `<div class="card empty">${t('noOccYet')}</div>${canEdit() ? `<button class="btn ghost block" data-act="occ-new">${t('newOccasion')}</button>` : ''}`;
+  return cards.map(o => {
+    const ps = by[o.key] || [], tot = ps.reduce((s, p) => s + (+p.amount || 0), 0);
+    return `<button class="vcard occ-card" data-act="occ-open" data-k="${esc(o.key)}">
+      <div class="top-l"><span class="ic-c"><i class="ph ph-${o.icon}"></i></span>
+        <div style="flex:1;min-width:0"><div style="font-weight:700">${esc(o.name)}</div>
+          <div class="small muted">${[o.date ? fmtD(o.date, { day: 'numeric', month: 'short' }) : '', t('payN', ps.length)].filter(Boolean).join(' · ')}</div></div>
+        <div style="text-align:right"><div style="font-weight:800;font-size:1.1rem">${inr(tot)}</div><div class="small muted">${words(tot)}</div></div></div>
+    </button>`;
+  }).join('') + (canEdit() ? `<button class="btn ghost block" data-act="occ-new">${t('newOccasion')}</button>` : '');
+}
+
+// One occasion's screen (live): total, split by category, its payments, and "paid money" pre-set to it.
+function occDetail(key) {
+  openSheet({
+    live: true,
+    html: () => {
+      const d = derive(), ps = (occTotals(d)[key] || []).sort(byDateDesc), o = occList().find(x => x.key === key);
+      const tot = ps.reduce((s, p) => s + (+p.amount || 0), 0), byCat = {};
+      ps.forEach(p => { const c = d.catOf(p); byCat[c] = (byCat[c] || 0) + (+p.amount || 0); });
+      const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+      return `${sheetHead(occLabel(key), o?.own && canEdit() ? `<button class="x" data-act="occ-edit" data-id="${o.own.id}" aria-label="edit"><i class="ph ph-pencil-simple"></i></button>` : '')}
+        ${o?.date ? `<div class="muted small" style="margin:-8px 0 12px">${fmtD(o.date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}
+        <div class="stats">
+          <div class="stat full"><div class="lb">${t('totalPaid')} · ${t('payN', ps.length)}</div><div class="v">${inr(tot)}</div><div class="w">${words(tot)}</div></div>
+        </div>
+        ${canEdit() ? `<button class="big-btn primary" style="width:100%;min-height:72px;flex-direction:row;gap:10px;margin-bottom:6px" data-act="add-pay" data-occ="${esc(key)}"><i class="ph ph-hand-coins"></i>${t('actPaid')}</button>` : ''}
+        ${cats.length > 1 ? `<div class="sec-h"><h2>${t('byCategory')}</h2></div><div class="list">${cats.map(([c, a]) => {
+          const cc = d.cById[c]; return `<div class="row"><span class="ic gold"><i class="ph ph-${cc?.icon || 'tag'}"></i></span><span class="mid"><div class="t">${esc(catName(cc) || t('noGroup'))}</div></span><span class="amt">${inr(a)}</span></div>`; }).join('')}</div>` : ''}
+        <div class="sec-h"><h2>${t('tabPayments')}</h2></div>
+        ${ps.length ? `<div class="list">${ps.map(p => payRow(p, d)).join('')}</div>` : `<div class="card empty">${t('noOccPays')}</div>`}`;
+    },
+  });
+}
+
+function occSheet(o) {
+  openSheet({
+    html: () => `${sheetHead(o ? t('editOcc') : t('newOccasion').replace('+ ', ''))}
+      <div class="field"><label for="o-name">${t('occNameLbl')}</label><input class="inp" id="o-name" placeholder="${esc(t('occasionPh'))}" value="${esc(o?.name || '')}"><div class="err hidden" id="e-oname"></div></div>
+      <div class="field"><label for="o-date">${t('date')}</label><input class="inp" id="o-date" type="date" value="${o?.date || ''}"></div>
+      <div class="btns">${o ? `<button class="btn danger" id="o-del"><i class="ph ph-trash"></i> ${t('delete')}</button>` : ''}
+        <button class="btn gold" id="o-save"><i class="ph ph-check"></i> ${t('save')}</button></div>`,
+    bind: root => {
+      if (!o) setTimeout(() => root.querySelector('#o-name').focus(), 250);
+      root.querySelector('#o-save').addEventListener('click', () => {
+        const name = root.querySelector('#o-name').value.trim();
+        if (!name) return showErr(root, 'e-oname', t('needName'));
+        const id = o ? o.id : newId();
+        put(wpath('occasions', id), { name, date: root.querySelector('#o-date').value || '', ...stamp(!o) });
+        closeSheet(); toast(t('saved'));
+        if (!o) setTimeout(() => occDetail('oc:' + id), 350);
+      });
+      o && root.querySelector('#o-del').addEventListener('click', () => { history.go(-2); softDelete('occasions', o.id); });
+    },
+  });
+}
 
 // Phone photos are 3–10 MB; shrink to a readable JPEG that fits in one Firestore document (max 1 MB).
 function compressImage(file, max = 1400, q = 0.62) {
@@ -988,16 +1069,14 @@ function receiptView(pid) {
   });
 }
 
-function paymentSheet(p, presetVendor) {
-  const d = derive(), { fns } = tderive();
-  const lastOcc = LS.get('sp.payocc', ''), tf = todayFn();
-  const validOcc = k => !k || (k.startsWith('fn:') ? fns.some(x => 'fn:' + x.id === k) : k.startsWith('o:'));
+function paymentSheet(p, presetVendor, presetOcc) {
+  const d = derive(), tf = todayFn(), occs = occList();
   const f = {
     vendorId: p ? p.vendorId || (p.paidTo ? '__other' : '') : presetVendor || '',
     categoryId: p?.categoryId || (presetVendor && d.vById[presetVendor]?.categoryId) || 'other',
     paidBy: p?.paidBy || S.me?.name || '',
     mode: p?.mode || LS.get('sp.mode', 'cash'),
-    occ: p ? occKey(p) : (tf ? 'fn:' + tf.id : validOcc(lastOcc) ? lastOcc : ''),
+    occ: p ? occKey(p) : presetOcc !== undefined ? presetOcc : (tf ? 'fn:' + tf.id : ''),
     img: '', hadImg: !!p?.hasReceipt, removed: false, loading: !!p?.hasReceipt,
   };
   const payers = [...new Set([S.me?.name, ...S.members.map(m => m.name),
@@ -1006,8 +1085,6 @@ function paymentSheet(p, presetVendor) {
   if (p?.vendorId && !vendors.find(v => v.id === p.vendorId) && d.vById[p.vendorId]) vendors.push(d.vById[p.vendorId]);
   const recent = [...d.P].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const purposes = [...new Set(recent.map(x => x.what).filter(w => w && !d.V.some(v => v.name === w)))].slice(0, 8);
-  const customOccs = [...new Set(recent.map(x => x.occasion).filter(Boolean))].slice(0, 8);
-  if (f.occ.startsWith('o:') && !customOccs.includes(f.occ.slice(2))) customOccs.unshift(f.occ.slice(2));
   const rcHTML = () => f.img || (f.hadImg && !f.removed && f.loading)
     ? (f.img ? `<div class="rc"><img src="${f.img}" alt="" id="rc-img"><div class="btns" style="margin-top:8px">
         <button type="button" class="btn ghost sm" id="rc-change"><i class="ph ph-camera"></i> ${t('changeReceipt')}</button>
@@ -1023,9 +1100,10 @@ function paymentSheet(p, presetVendor) {
       <div class="field"><label for="f-what">${t('whatFor')}</label>
         <input class="inp" id="f-what" placeholder="${esc(t('whatForPh'))}" value="${esc(p?.what || '')}"><div class="err hidden" id="e-what"></div>
         ${purposes.length ? `<div class="chips mini" style="margin-top:8px">${purposes.map(w => `<button type="button" data-fill="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}</div>
-      <div class="field"><label>${t('payOccasion')}</label>
-        <div class="chips" data-group="occ">${chip('', t('noOccasion'), !f.occ)}${fns.map(x => chip('fn:' + x.id, fnName(x), f.occ === 'fn:' + x.id)).join('')}${customOccs.map(o => chip('o:' + o, o, f.occ === 'o:' + o)).join('')}<button type="button" class="add" id="add-occ">${t('newOccasion')}</button></div>
-        <input class="inp hidden" id="f-occ" placeholder="${esc(t('occasionPh'))}" style="margin-top:8px"></div>
+      <div class="field"><div class="occ-line"><i class="ph ph-calendar-star"></i> ${t('occLine')}: <b id="occ-cur">${esc(occLabel(f.occ))}</b>
+          <button type="button" class="link" id="occ-change">${t('changeReceipt')}</button></div>
+        <div class="hidden" id="occ-pick" style="margin-top:10px"><div class="chips" data-group="occ">${chip('', t('noOccasion'), !f.occ)}${occs.map(o => chip(o.key, o.name, f.occ === o.key)).join('')}${f.occ.startsWith('o:') ? chip(f.occ, f.occ.slice(2), true) : ''}<button type="button" class="add" id="add-occ">${t('newOccasion')}</button></div>
+        <input class="inp hidden" id="f-occ" placeholder="${esc(t('occasionPh'))}" style="margin-top:8px"></div></div>
       <div class="field" id="cat-field"><label>${t('category')}</label>
         <div class="chips" data-group="categoryId">${d.cats.map(c => chip(c.id, catName(c), f.categoryId === c.id)).join('')}</div></div>
       <div class="field"><label for="f-vendor">${t('paidTo')}</label>
@@ -1063,12 +1141,14 @@ function paymentSheet(p, presetVendor) {
       root.querySelectorAll('[data-fill]').forEach(b => b.addEventListener('click', () => { what.value = b.dataset.fill; root.querySelector('#e-what').classList.add('hidden'); }));
       bindChips(root, f, g => {
         if (g === 'paidBy') { payerInp.value = ''; payerInp.classList.add('hidden'); }
-        if (g === 'occ') { occInp.value = ''; occInp.classList.add('hidden'); }
+        if (g === 'occ') { occInp.value = ''; occInp.classList.add('hidden'); root.querySelector('#occ-cur').textContent = occLabel(f.occ); }
       });
       root.querySelector('#add-payer').addEventListener('click', () => {
         payerInp.classList.remove('hidden'); payerInp.focus();
         root.querySelectorAll('[data-group=paidBy] button[data-val]').forEach(x => x.classList.remove('on'));
       });
+      root.querySelector('#occ-change').addEventListener('click', e => { root.querySelector('#occ-pick').classList.remove('hidden'); e.currentTarget.classList.add('hidden'); });
+      occInp.addEventListener('input', () => { root.querySelector('#occ-cur').textContent = occInp.value.trim() || occLabel(f.occ); });
       root.querySelector('#add-occ').addEventListener('click', () => {
         occInp.classList.remove('hidden'); occInp.focus();
         root.querySelectorAll('[data-group=occ] button[data-val]').forEach(x => x.classList.remove('on'));
@@ -1107,12 +1187,18 @@ function paymentSheet(p, presetVendor) {
         const vName = vendorId ? (d.vById[vendorId]?.name || nv.value.trim()) : '';
         const purpose = what.value.trim() || vName;
         if (!purpose) return showErr(root, 'e-what', t('needWhat'));
+        // a newly typed occasion becomes its own occasion card (weddings/{wid}/occasions)
         const typedOcc = occInp.value.trim();
-        const occ = typedOcc ? 'o:' + typedOcc : f.occ || '';
+        let occ = f.occ || '';
+        if (typedOcc) {
+          const same = occList().find(o => norm(o.name) === norm(typedOcc));
+          if (same) occ = same.key;
+          else { const oid = newId(); ops.push({ path: wpath('occasions', oid), data: { name: typedOcc, date: '', ...stamp(true) } }); occ = 'oc:' + oid; }
+        }
         const id = p ? p.id : newId();
         const data = {
           amount, what: purpose, vendorId: vendorId || null, paidTo,
-          fnId: occ.startsWith('fn:') ? occ.slice(3) : '', occasion: occ.startsWith('o:') ? occ.slice(2) : '',
+          fnId: occ.startsWith('fn:') ? occ.slice(3) : '', occId: occ.startsWith('oc:') ? occ.slice(3) : '', occasion: occ.startsWith('o:') ? occ.slice(2) : '',
           categoryId: vendorId && d.vById[vendorId] ? d.vById[vendorId].categoryId || 'other' : f.categoryId || 'other',
           paidBy: payerInp.value.trim() || f.paidBy, mode: f.mode, date: root.querySelector('#f-date').value || todayStr(),
           note: root.querySelector('#f-note').value.trim(), ...stamp(!p),
@@ -1122,7 +1208,7 @@ function paymentSheet(p, presetVendor) {
           data.hasReceipt = true;
         } else if (f.removed && f.hadImg) { ops.push({ path: wpath('receipts', id), del: true }); data.hasReceipt = false; }
         ops.push({ path: wpath('payments', id), data });
-        LS.set('sp.mode', f.mode); LS.set('sp.payocc', occ);
+        LS.set('sp.mode', f.mode);
         store.batch(ops).catch(fail);
         closeSheet(); toast(t('saved'));
       });
@@ -1308,6 +1394,7 @@ function trashSheet() {
         ...S.payments.filter(x => x.deleted).map(x => ({ col: 'payments', id: x.id, icon: 'hand-coins', title: x.what, sub: inr(x.amount), at: x.deletedAt })),
         ...S.vendors.filter(x => x.deleted).map(x => ({ col: 'vendors', id: x.id, icon: 'storefront', title: x.name, sub: t('vendor'), at: x.deletedAt })),
         ...S.categories.filter(x => x.deleted).map(x => ({ col: 'categories', id: x.id, icon: 'tag', title: catName(x), sub: t('category'), at: x.deletedAt })),
+        ...S.occasions.filter(x => x.deleted).map(x => ({ col: 'occasions', id: x.id, icon: 'calendar-star', title: x.name, sub: t('tabOcc'), at: x.deletedAt })),
         ...S.guests.filter(x => x.deleted).map(x => ({ col: 'guests', id: x.id, icon: 'users-three', title: x.name, sub: t('navGuests'), at: x.deletedAt })),
         ...S.shagun.filter(x => x.deleted).map(x => ({ col: 'shagun', id: x.id, icon: 'gift', title: x.name, sub: t('segShagun') + (x.amount ? ' · ' + inr(x.amount) : ''), at: x.deletedAt })),
         ...S.tasks.filter(x => x.deleted).map(x => ({ col: 'tasks', id: x.id, icon: 'check-square', title: x.title, sub: t('navTasks'), at: x.deletedAt })),
@@ -1387,7 +1474,10 @@ const ACT = {
   'money-tab'(el) { S.view = 'money'; S.moneyTab = el.dataset.v; render(); window.scrollTo(0, 0); },
   fcat(el) { S.cat = el.dataset.id; render(); },
   focc(el) { S.occ = el.dataset.id; render(); },
-  'add-pay'() { paymentSheet(null); },
+  'add-pay'(el) { paymentSheet(null, undefined, el.dataset.occ); },
+  'occ-open'(el) { occDetail(el.dataset.k); },
+  'occ-new'() { occSheet(null); },
+  'occ-edit'(el) { const o = S.occasions.find(x => x.id === el.dataset.id); if (o) occSheet(o); },
   'add-vendor'() { vendorSheet(null); },
   pay(el) { const p = S.payments.find(x => x.id === el.dataset.id); if (p && canEdit()) paymentSheet(p); else if (p?.hasReceipt) receiptView(p.id); else if (p?.vendorId) vendorDetail(p.vendorId); },
   vendor(el) { vendorDetail(el.dataset.id); },
@@ -1463,7 +1553,7 @@ function stopAll() {
   [...unsubs, ...moneyUnsubs].forEach(u => { try { u(); } catch (e) {} });
   if (pinUnsub) { try { pinUnsub(); } catch (e) {} pinUnsub = null; }
   unsubs = []; moneyUnsubs = [];
-  Object.assign(S, { wid: null, wedding: null, members: [], me: null, payments: [], vendors: [], categories: [], pend: {}, cat: 'all', occ: 'all', q: '', famPin: '', functions: [], tasks: [], showDone: {}, setupSel: null, guests: [], shagun: [], gq: '', shq: '' });
+  Object.assign(S, { wid: null, wedding: null, members: [], me: null, payments: [], vendors: [], categories: [], pend: {}, cat: 'all', occ: 'all', q: '', famPin: '', functions: [], tasks: [], showDone: {}, setupSel: null, guests: [], shagun: [], occasions: [], gq: '', shq: '' });
 }
 let pinUnsub = null;
 // Only the owner can read the family PIN. Weddings made before PINs existed get the owner's login PIN.
@@ -1506,7 +1596,7 @@ async function afterLogin() {
 
 function openWedding(wid) {
   stopAll();
-  Object.assign(S, { wid, screen: 'app', view: 'home', moneyTab: 'payments' });
+  Object.assign(S, { wid, screen: 'app', view: 'home', moneyTab: 'occasions' });
   render();
   if (S.userDoc.current !== wid) { S.userDoc.current = wid; store.set('users/' + S.user.uid, { current: wid }).catch(() => {}); }
   unsubs.push(store.listenDoc(`weddings/${wid}`, w => { S.wedding = w; render(); }, () => lostWedding(wid)));
@@ -1526,12 +1616,12 @@ function openWedding(wid) {
 function syncMoneyListeners() {
   const want = seesMoney();
   if (want && !moneyUnsubs.length) {
-    ['payments', 'vendors', 'categories', 'shagun'].forEach(col => moneyUnsubs.push(store.listenCol(`weddings/${S.wid}/${col}`,
+    ['payments', 'vendors', 'categories', 'shagun', 'occasions'].forEach(col => moneyUnsubs.push(store.listenCol(`weddings/${S.wid}/${col}`,
       (docs, pend) => { S[col] = docs; S.pend[col] = pend; render(); },
       e => { console.warn(col, e); S[col] = []; render(); })));
   } else if (!want && moneyUnsubs.length) {
     moneyUnsubs.forEach(u => u()); moneyUnsubs = [];
-    S.payments = []; S.vendors = []; S.categories = []; S.shagun = [];
+    S.payments = []; S.vendors = []; S.categories = []; S.shagun = []; S.occasions = [];
     if (S.view === 'money') S.view = 'home';
     S.guestTab = 'list';
   }

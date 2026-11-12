@@ -193,6 +193,11 @@ export const STR = {
     fnCount: n => n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n > 0 ? `in ${n} days` : 'Done',
     noDateShort: 'Date not set',
 
+    // occasion screen
+    tabOcc: 'Occasions', payN: n => n === 1 ? '1 payment' : `${n} payments`, occLine: 'Occasion',
+    editOcc: 'Edit occasion', occNameLbl: 'Occasion name', byCategory: 'By category',
+    noOccPays: 'No payments for this occasion yet.', noOccYet: 'No occasions yet. Add the wedding functions in Tasks, or add your own occasion.',
+
     // payments: occasion, paid to, receipt
     payOccasion: 'For which occasion?', noOccasion: 'None in particular', newOccasion: '+ New occasion',
     occasionPh: 'e.g. Diwali gifts', allOcc: 'All occasions',
@@ -428,6 +433,10 @@ export const STR = {
     nextJobs: 'आगे के काम', allJobsDone: 'सारे काम हो गए।',
     fnCount: n => n === 0 ? 'आज' : n === 1 ? 'कल' : n > 0 ? `${n} दिन बाद` : 'हो गई',
     noDateShort: 'तारीख़ तय नहीं',
+
+    tabOcc: 'अवसर', payN: n => `${n} भुगतान`, occLine: 'अवसर',
+    editOcc: 'अवसर बदलें', occNameLbl: 'अवसर का नाम', byCategory: 'खर्च के हिस्से के हिसाब से',
+    noOccPays: 'इस अवसर पर अभी कोई भुगतान नहीं।', noOccYet: 'अभी कोई अवसर नहीं। “काम” में रस्में जोड़ें या अपना अवसर बनाएँ।',
 
     payOccasion: 'किस अवसर के लिए?', noOccasion: 'कोई खास नहीं', newOccasion: '+ नया अवसर',
     occasionPh: 'जैसे: दिवाली के उपहार', allOcc: 'सभी अवसर',

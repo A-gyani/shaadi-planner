@@ -7,7 +7,7 @@ rules_version = '2';
 //   weddings/{wid}                   name, date, total budget
 //   weddings/{wid}/members/{uid}     role: owner | editor | viewer, money: can a viewer see money, phone
 //   weddings/{wid}/private/pin       the family PIN (owner only)
-//   weddings/{wid}/payments|vendors|categories|receipts/{id}   (money: owner, editors, viewers with money)
+//   weddings/{wid}/payments|vendors|categories|receipts|occasions/{id}   (money: owner, editors, viewers with money)
 //   weddings/{wid}/functions|tasks|guests/{id}        (to-do list, guest list: every member)
 //   weddings/{wid}/shagun/{id}                        (shagun / lena-dena register: like money)
 service cloud.firestore {
@@ -77,6 +77,7 @@ service cloud.firestore {
       match /vendors/{id}    { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
       match /categories/{id} { allow read: if seesMoney(wid); allow write: if canEdit(wid); }
       match /receipts/{id}   { allow read: if seesMoney(wid); allow write: if canEdit(wid); }   // receipt photo per payment
+      match /occasions/{id}  { allow read: if seesMoney(wid); allow write: if canEdit(wid); }   // own occasions for payments (Diwali…)
       // to-do list: every member can see it, even without money access
       match /functions/{id}  { allow read: if isMember(wid); allow write: if canEdit(wid); }
       match /tasks/{id}      { allow read: if isMember(wid); allow write: if canEdit(wid); }
