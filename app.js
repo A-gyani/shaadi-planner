@@ -1243,7 +1243,7 @@ function paymentSheet(p, presetVendor, presetOcc) {
     ? (f.img ? `<div class="rc"><img src="${f.img}" alt="" id="rc-img"><div class="btns" style="margin-top:8px">
         <button type="button" class="btn ghost sm" id="rc-change"><i class="ph ph-camera"></i> ${t('changeReceipt')}</button>
         <button type="button" class="btn danger sm" id="rc-remove"><i class="ph ph-trash"></i> ${t('removeReceipt')}</button></div></div>`
-      : `<div class="small muted"><span class="spin" style="width:16px;height:16px;vertical-align:-3px"></span> ${t('loading')}</div>`)
+      : `<div class="small muted"><span class="spin sm"></span> ${t('loading')}</div>`)
     : `<button type="button" class="btn ghost block" id="rc-add"><i class="ph ph-camera"></i> ${t('addReceipt')}</button>`;
 
   openSheet({
@@ -1388,7 +1388,7 @@ function payDetail(pid) {
         <div class="stat full" style="margin-bottom:12px"><div class="v">${inr(p.amount)}</div><div class="w">${words(p.amount)}</div></div>
         <div class="list">${rows.map(([k, x]) => `<div class="row kv"><span class="k">${esc(strip(k))}</span><span class="vv">${esc(x)}</span></div>`).join('')}</div>
         ${p.hasReceipt ? `<div class="sec-h"><h2>${t('receipt')}</h2></div>${st.img ? `<img src="${st.img}" alt="" style="width:100%;border-radius:14px;display:block;border:1px solid var(--line)">`
-          : `<div class="card small muted"><span class="spin" style="width:16px;height:16px;vertical-align:-3px"></span> ${t('loading')}</div>`}` : ''}
+          : `<div class="card small muted"><span class="spin sm"></span> ${t('loading')}</div>`}` : ''}
         <div class="btns" style="flex-wrap:wrap">
           ${v ? `<button class="btn ghost" data-act="vendor" data-id="${v.id}"><i class="ph ph-storefront"></i> ${esc(v.name)}</button>` : ''}
           ${canEdit() ? `<button class="btn gold" data-act="pay-edit" data-id="${p.id}"><i class="ph ph-pencil-simple"></i> ${t('editBtn')}</button>` : ''}</div>
