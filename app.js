@@ -1734,6 +1734,8 @@ const ACT = {
   'join-skip'() { LS.del('sp.join'); S.join = null; afterLogin(); },
 };
 document.addEventListener('click', e => {
+  // real links (call, WhatsApp, maps) must open normally, even inside a sheet, whose backdrop has data-act
+  const a = e.target.closest('a[href]'); if (a && !a.dataset.act) return;
   const el = e.target.closest('[data-act]'); if (!el) return;
   const fn = ACT[el.dataset.act]; if (!fn) return;
   e.preventDefault(); fn(el, e);
